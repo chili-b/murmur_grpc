@@ -3,6 +3,8 @@ pub mod murmur_rpc {
 }
 
 use murmur_rpc::v1_client::V1Client;
+/// Client is a more specific definiton for [V1Client](murmur_rpc/v1_client/struct.V1Client.html)
+/// which owns the methods that communicate with the Mumble server.
 pub type Client = V1Client<tonic::transport::Channel>;
 pub use murmur_rpc::{Server, User, TextMessage, Channel, ContextAction};
 pub use murmur_rpc::server::Event;
@@ -13,7 +15,8 @@ pub use murmur_rpc::authenticator::{Response, Request};
 
 use futures::join;
 use futures::future::join_all;
-use futures::executor::block_on;
+pub use futures::executor::block_on;
+use futures::Future;
 
 use tonic::transport::Endpoint;
 use tonic::codegen::StdError;
@@ -27,14 +30,30 @@ use std::convert::TryInto;
 use std::sync::Arc;
 use std::marker::Send;
 
-type Handler<T> = fn(t: DataMutex<T>, c: Client, e: &Event) -> bool;
+/// Function that handles Mumble server events. Returns a boolean which determines whether or not
+/// other functions will be allowed to process the event it has handled (similar to cases falling
+/// through in a switch statement from other languages).
+pub type Handler<T> = fn(t: DataMutex<T>, c: Client, e: &Event) -> bool;
 
-type ChatFilter<T> = fn(t: DataMutex<T>, c: Client, filter: &mut Filter) -> bool;
+/// Funtion that filters the text chat and determines whether to Block/Reject/Drop messages.
+/// Returns a boolean which determines whether or not other functions will be able to process the
+/// message it has filtered (similar to cases falling through in a switch statement from other languages). 
+/// The function's body should mutate `filter`.
+pub type ChatFilter<T> = fn(t: DataMutex<T>, c: Client, filter: &mut Filter) -> bool;
 
-type Authenticator<T> = fn(t: DataMutex<T>, c: Client, response: &mut Response, request: &Request) -> bool;
+/// Function that handles events on the Mumble server authentication stream. Returns a boolean
+/// which determines whether or not other functions will be able to process the authentication event
+/// it has handled (similar to cases falling through in a switch statement from other languages).
+pub type Authenticator<T> = fn(t: DataMutex<T>, c: Client, response: &mut Response, request: &Request) -> bool;
 
-type ContextActionHandler<T> = fn(t: DataMutex<T>, c: Client, action: &ContextAction) -> bool;
+/// Function that handles events on the Mumble server context action stream. Returns a boolean
+/// which determines whether or not other functions will be able to process the authentication
+/// event it has handled (similar to cases falling through in a switch statement from other languages).
+pub type ContextActionHandler<T> = fn(t: DataMutex<T>, c: Client, action: &ContextAction) -> bool;
 
+/// This struct is a wrapper over an asynchronous [Mutex](../tokio/sync/struct.Mutex.html) that
+/// allows the contained value to be accessed inside or outside a tokio runtime asynchronously or
+/// not.
 #[derive(Clone)]
 pub struct DataMutex<T> 
 where T: Clone 
@@ -45,14 +64,19 @@ where T: Clone
 impl<T> DataMutex<T> 
 where T: Clone
 {
+    /// Lock the Mutex synchronously while inside a tokio runtime. Calling this method while
+    /// outside of a tokio runtime will cause a panic.
     pub fn lock(&mut self) -> MutexGuard<T> {
         block_on(self.t.lock())
     }
 
+    /// Lock the Mutex asynchronously while inside a tokio runtime.
     pub async fn lock_async(&mut self) -> MutexGuard<'_, T> {
         self.t.lock().await
     }
 
+    /// Lock the Mutex synchronously while outside a tokio runtime. Calling this method inside a
+    /// tokio runtime will cause a panic.
     pub fn lock_outside_runtime(&mut self) -> MutexGuard<T> {
         Runtime::new().unwrap().block_on(self.t.lock())
     }
@@ -64,18 +88,31 @@ where A: TryInto<Endpoint> + Send + Clone,
       A::Error: Into<StdError>,
       T: Send + Clone,
 {
+    /// Mutex that holds data in order to allow a persistent state shared.
     pub t: DataMutex<T>,
+    /// The address to connect to.
     pub addr: A,
+    /// The virtual server id to connect to.
     pub server_id: u32,
+    /// Functions to be called when a user connects.
     pub user_connected: Vec<Handler<T>>,
+    /// Functions to be called when a user disconnects.
     pub user_disconnected: Vec<Handler<T>>,
+    /// Functions to be called when user state changes (mute, unmute, comment update, etc.)
     pub user_state_changed: Vec<Handler<T>>,
+    /// Functions to be called when a user sends a text message.
     pub user_text_message: Vec<Handler<T>>,
+    /// Functions to be called when a channel is created.
     pub channel_created: Vec<Handler<T>>,
+    /// Functions to be called when a channel is removed.
     pub channel_removed: Vec<Handler<T>>,
+    /// Functions to be called when a channel's state changes (renamed, linked, etc.)
     pub channel_state_changed: Vec<Handler<T>>,
+    /// Functions to be called to filter the text chat.
     pub chat_filters: Vec<ChatFilter<T>>,
+    /// Functions to be called to parse the authenticator stream.
     pub authenticators: Vec<Authenticator<T>>,
+    /// Context actions to parse along with the functions that will parse them.
     pub context_actions: Vec<(ContextAction, Vec<ContextActionHandler<T>>)>,
 }
 
@@ -178,7 +215,43 @@ where A: TryInto<Endpoint> + Send + Clone,
     }
 }
 
-pub fn start<A, T>(num_threads: usize, interfaces: Vec<MurmurInterface<A, T>>) -> Vec<Client>
+/// Start a connection to a Mumble server for each provided MurmurInterface
+/// 
+/// # Arguments
+///
+/// * `num_threads` - The number of threads available to the threadpool on which the connections
+/// will run.
+///
+/// * `interfaces` - The data required to set up each connection
+///
+/// # Return value
+///
+/// Returns a Vec of tuples. The first tuple element is the Client needed to communicate with each
+/// server. The second tuple element is a DataMutex that contains the persistent data for each
+/// server.
+///
+/// # Example
+///
+/// This is an example which shows how to print the contents of every text message sent to a server
+/// into the console. The `text_message` function will be called every time a text message is sent.
+///
+/// ```
+/// use murmur_grpc::*;
+///
+/// fn text_message(_t: DataMutex<()>, _c: Client, event: &Event) -> bool {
+///     println!("{}", event.message.as_ref().unwrap().text.as_ref().unwrap());
+///     true
+/// }
+///
+/// fn main() {
+///     let i = MurmurInterfaceBuilder::new((), "http://127.0.0.1:50051")
+///         .user_text_message(vec![text_message])
+///         .build();
+///     murmur_grpc::start(1, vec![i]);
+///     std::thread::park();
+/// }
+/// ```
+pub fn start<A, T>(num_threads: usize, interfaces: Vec<MurmurInterface<A, T>>) -> Vec<(Client, DataMutex<T>)>
 where A: TryInto<Endpoint> + Send + 'static + Clone,
       A::Error: Into<StdError>,
       T: Send + Clone + 'static,
@@ -189,7 +262,7 @@ where A: TryInto<Endpoint> + Send + 'static + Clone,
         // for whatever reason, we cannot pass this client into each child thread as trying to use
         // its streams will panic if we do.
         let c = Runtime::new().unwrap().block_on(V1Client::connect(i.addr.clone())).unwrap();
-        result_vec.push(c);
+        result_vec.push((c, t.clone()));
         thread_pool.spawn(move || {
             Runtime::new().unwrap().block_on(async move {
                 tokio::spawn(async move {
@@ -244,7 +317,6 @@ where T: Send + Clone + 'static,
             {
                 let mut event_stream = c.server_events(server).await.unwrap().into_inner();
                 while let Some(event) = event_stream.message().await.unwrap() {
-                    //let event_fields = event_fields(&event);
                     // the generated method name 'type' conflics with a rust keyword so 'r#' is needed
                     match event.r#type() {
                         Type::UserConnected       => handle_event(t.clone(), c.clone(), &user_connected, &event),
@@ -331,4 +403,10 @@ where T: Send + Clone
             return;
         }
     }
+}
+
+/// Create a runtime in order to execute a single Future outside of a tokio runtime. This function
+/// will panic if it is called inside of a tokio runtime.
+pub fn runtime<F: Future>(f: F) -> F::Output {
+    Runtime::new().unwrap().block_on(f)
 }
