@@ -5,8 +5,8 @@ authors = ["chili-b"]
 edition = "2018"
 description = "Wrapper over Murmur's gRPC interface"
 repository = "https://github.com/chili-b/murmur_grpc"
-licence = "MIT"
-keywords = ["mumble", "murmur", "mumble server", "murmur server"]
+license = "MIT"
+keywords = ["mumble", "murmur"]
 
 [lib]
 crate-type = ["lib"]
