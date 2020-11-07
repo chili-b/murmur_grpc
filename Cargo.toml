@@ -3,6 +3,10 @@ name = "murmur_grpc"
 version = "0.1.0"
 authors = ["chili-b"]
 edition = "2018"
+description = "Wrapper over Murmur's gRPC interface"
+repository = "https://github.com/chili-b/murmur_grpc"
+licence = "MIT"
+keywords = ["mumble", "murmur", "mumble server", "murmur server"]
 
 [lib]
 crate-type = ["lib"]
