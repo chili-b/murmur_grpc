@@ -1,7 +1,7 @@
 [package]
 name = "murmur_grpc"
 version = "0.1.0"
-authors = ["chili-b <dexter.gaonshatford@gmail.com>"]
+authors = ["chili-b"]
 edition = "2018"
 
 [lib]
