@@ -1,5 +1,9 @@
 # murmur_grpc
 
+This library was primarily created for my own purposes in order to take the pain out of interacting with Murmur's gRPC inteface. 
+All of the functionality is available, but no extensive testing has been done at this point so your milage may vary. The documentation
+is very sparse at the moment because I am very stupid, but I intend to improve it as the library matures.
+
 ### Examlpes
 
 This example prints the contents of every message that is sent to a Mumble server. 
