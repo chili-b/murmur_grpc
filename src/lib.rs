@@ -5,7 +5,7 @@ pub mod murmur_rpc {
 use murmur_rpc::v1_client::V1Client;
 pub type Client = V1Client<tonic::transport::Channel>;
 pub use murmur_rpc::{Server, User, TextMessage, Channel, ContextAction};
-use murmur_rpc::server::Event;
+pub use murmur_rpc::server::Event;
 use murmur_rpc::server::event::Type;
 pub use murmur_rpc::text_message::filter::Action;
 pub use murmur_rpc::text_message::Filter;
@@ -26,21 +26,13 @@ use std::convert::TryInto;
 use std::sync::Arc;
 use std::marker::Send;
 
-type Handler<T> = fn(
-    t: DataMutex<T>,
-    c: Client, 
-    user: &Option<User>, 
-    message: &Option<TextMessage>, 
-    channel: &Option<Channel>,
-    server: &Option<Server>) -> bool;
+type Handler<T> = fn(t: DataMutex<T>, c: Client, e: &Event) -> bool;
 
 type ChatFilter<T> = fn(t: DataMutex<T>, c: Client, filter: &mut Filter) -> bool;
 
 type Authenticator<T> = fn(t: DataMutex<T>, c: Client, response: &mut Response, request: &Request) -> bool;
 
 type ContextActionHandler<T> = fn(t: DataMutex<T>, c: Client, action: &ContextAction) -> bool;
-
-type EventFields<'a> = (&'a Option<User>, &'a Option<TextMessage>, &'a Option<Channel>, &'a Option<Server>);
 
 #[derive(Clone)]
 pub struct DataMutex<T> 
@@ -256,16 +248,16 @@ where T: Send + Clone + 'static,
             {
                 let mut event_stream = c.server_events(server).await.unwrap().into_inner();
                 while let Some(event) = event_stream.message().await.unwrap() {
-                    let event_fields = event_fields(&event);
+                    //let event_fields = event_fields(&event);
                     // the generated method name 'type' conflics with a rust keyword so 'r#' is needed
                     match event.r#type() {
-                        Type::UserConnected       => handle_event(t.clone(), c.clone(), &user_connected, event_fields),
-                        Type::UserDisconnected    => handle_event(t.clone(), c.clone(), &user_disconnected, event_fields),
-                        Type::UserStateChanged    => handle_event(t.clone(), c.clone(), &user_state_changed, event_fields),
-                        Type::UserTextMessage     => handle_event(t.clone(), c.clone(), &user_text_message, event_fields),
-                        Type::ChannelCreated      => handle_event(t.clone(), c.clone(), &channel_created, event_fields),
-                        Type::ChannelRemoved      => handle_event(t.clone(), c.clone(), &channel_removed, event_fields),
-                        Type::ChannelStateChanged => handle_event(t.clone(), c.clone(), &channel_state_changed, event_fields),
+                        Type::UserConnected       => handle_event(t.clone(), c.clone(), &user_connected, &event),
+                        Type::UserDisconnected    => handle_event(t.clone(), c.clone(), &user_disconnected, &event),
+                        Type::UserStateChanged    => handle_event(t.clone(), c.clone(), &user_state_changed, &event),
+                        Type::UserTextMessage     => handle_event(t.clone(), c.clone(), &user_text_message, &event),
+                        Type::ChannelCreated      => handle_event(t.clone(), c.clone(), &channel_created, &event),
+                        Type::ChannelRemoved      => handle_event(t.clone(), c.clone(), &channel_removed, &event),
+                        Type::ChannelStateChanged => handle_event(t.clone(), c.clone(), &channel_state_changed, &event),
                     }
                 }
             }
@@ -335,17 +327,12 @@ where T: Send + Clone + 'static,
     drop(join!(server_event_fut, authenticator_fut, chat_filter_fut, context_action_fut));
 }
 
-fn handle_event<T>(t: DataMutex<T>, c: Client, handlers: &Vec<Handler<T>>, event_fields: EventFields) 
+fn handle_event<T>(t: DataMutex<T>, c: Client, handlers: &Vec<Handler<T>>, event: &Event) 
 where T: Send + Clone
 {
-    let (user, message, channel, server) = event_fields;
     for handler in handlers.iter() {
-        if !(handler)(t.clone(), c.clone(), user, message, channel, server) {
+        if !(handler)(t.clone(), c.clone(), event) {
             return;
         }
     }
-}
-
-fn event_fields(event: &Event) -> (&Option<User>, &Option<TextMessage>, &Option<Channel>, &Option<Server>) {
-    (&event.user, &event.message, &event.channel, &event.server)
 }
