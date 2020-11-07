@@ -262,7 +262,7 @@ where A: TryInto<Endpoint> + Send + 'static + Clone,
         // for whatever reason, we cannot pass this client into each child thread as trying to use
         // its streams will panic if we do.
         let c = Runtime::new().unwrap().block_on(V1Client::connect(i.addr.clone())).unwrap();
-        result_vec.push((c, t.clone()));
+        result_vec.push((c, i.t.clone()));
         thread_pool.spawn(move || {
             Runtime::new().unwrap().block_on(async move {
                 tokio::spawn(async move {
