@@ -59,7 +59,7 @@ where A: TryInto<Endpoint> + Send + Clone,
       A::Error: Into<StdError>,
       T: Send + Clone,
 {
-    pub t: T,
+    pub t: DataMutex<T>,
     pub addr: A,
     pub server_id: u32,
     pub user_connected: Vec<Handler<T>>,
@@ -81,7 +81,7 @@ where A: TryInto<Endpoint> + Send + Clone,
 {
     pub fn new(t: T, addr: A) -> Self {
         Self {
-            t: t,
+            t: DataMutex{t: Arc::new(Mutex::new(t))},
             addr: addr,
             server_id: 1,
             user_connected: vec![],
@@ -117,6 +117,10 @@ where A: TryInto<Endpoint> + Send + Clone,
         }
     }
     pub fn data(mut self, t: T) -> Self {
+        self.i.t = DataMutex{t: Arc::new(Mutex::new(t))};
+        self
+    }
+    pub fn data_mutex(mut self, t: DataMutex<T>) -> Self {
         self.i.t = t;
         self
     }
@@ -169,7 +173,7 @@ where A: TryInto<Endpoint> + Send + Clone,
     }
 }
 
-pub fn start<A, T>(num_threads: usize, interfaces: Vec<MurmurInterface<A, T>>) -> Vec<(Client, DataMutex<T>)>
+pub fn start<A, T>(num_threads: usize, interfaces: Vec<MurmurInterface<A, T>>) -> Vec<Client>
 where A: TryInto<Endpoint> + Send + 'static + Clone,
       A::Error: Into<StdError>,
       T: Send + Clone + 'static,
@@ -177,37 +181,24 @@ where A: TryInto<Endpoint> + Send + 'static + Clone,
     let thread_pool = ThreadPoolBuilder::new().num_threads(num_threads).build().unwrap();
     let mut result_vec = vec![];
     for i in interfaces.into_iter() {
-        let t = DataMutex{t: Arc::new(Mutex::new(i.t))};
-        let addr = i.addr;
-        let server_id = i.server_id;
-        let user_connected = i.user_connected;
-        let user_disconnected = i.user_disconnected;
-        let user_state_changed = i.user_state_changed;
-        let user_text_message = i.user_text_message;
-        let channel_created = i.channel_created;
-        let channel_removed = i.channel_removed;
-        let channel_state_changed = i.channel_state_changed;
-        let chat_filters = i.chat_filters;
-        let authenticators = i.authenticators;
-        let context_actions = i.context_actions;
         // for whatever reason, we cannot pass this client into each child thread as trying to use
         // its streams will panic if we do.
-        let c = Runtime::new().unwrap().block_on(V1Client::connect(addr.clone())).unwrap();
-        result_vec.push((c, t.clone()));
+        let c = Runtime::new().unwrap().block_on(V1Client::connect(i.addr.clone())).unwrap();
+        result_vec.push(c);
         thread_pool.spawn(move || {
             Runtime::new().unwrap().block_on(async move {
                 tokio::spawn(async move {
-                    start_single(addr, t, server_id, 
-                                 user_connected, 
-                                 user_disconnected, 
-                                 user_state_changed, 
-                                 user_text_message, 
-                                 channel_created, 
-                                 channel_removed, 
-                                 channel_state_changed, 
-                                 chat_filters, 
-                                 authenticators,
-                                 context_actions).await;
+                    start_single(i.addr, i.t, i.server_id, 
+                                 i.user_connected, 
+                                 i.user_disconnected, 
+                                 i.user_state_changed, 
+                                 i.user_text_message, 
+                                 i.channel_created, 
+                                 i.channel_removed, 
+                                 i.channel_state_changed, 
+                                 i.chat_filters, 
+                                 i.authenticators,
+                                 i.context_actions).await;
                 }).await.unwrap();
             });
         });
