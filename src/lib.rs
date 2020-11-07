@@ -13,6 +13,7 @@ pub use murmur_rpc::authenticator::{Response, Request};
 
 use futures::join;
 use futures::future::join_all;
+use futures::executor::block_on;
 
 use tonic::transport::Endpoint;
 use tonic::codegen::StdError;
@@ -45,11 +46,15 @@ impl<T> DataMutex<T>
 where T: Clone
 {
     pub fn lock(&mut self) -> MutexGuard<T> {
-        Runtime::new().unwrap().block_on(self.t.lock())
+        block_on(self.t.lock())
     }
 
     pub async fn lock_async(&mut self) -> MutexGuard<'_, T> {
         self.t.lock().await
+    }
+
+    pub fn lock_outside_runtime(&mut self) -> MutexGuard<T> {
+        Runtime::new().unwrap().block_on(self.t.lock())
     }
 }
 
