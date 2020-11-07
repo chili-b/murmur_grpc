@@ -1,6 +1,6 @@
 # murmur_grpc
 
-## Examlpes
+### Examlpes
 
 This example prints the contents of every message that is sent to a Mumble server. 
 The `text_message` function gets called for each message that is sent.
