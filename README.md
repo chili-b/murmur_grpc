@@ -3,7 +3,7 @@
 <a href="https://crates.io/crates/murmur_grpc"><img src="https://img.shields.io/crates/v/murmur_grpc" alt="Crates.io badge"></a>
 
 This library was primarily created for my own purposes in order to take the pain out of interacting with Murmur's gRPC inteface. 
-All of the functionality is available, but no extensive testing has been done at this point so your milage may vary. The documentation
+All of the functionality is available, but no extensive testing has been done at this point so your mileage may vary. The documentation
 is very sparse at the moment because I am very stupid, but I intend to improve it as the library matures.
 
 ### Examlpes
