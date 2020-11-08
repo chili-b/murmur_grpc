@@ -56,14 +56,17 @@ pub type ContextActionHandler<T> = fn(t: DataMutex<T>, c: Client, action: &Conte
 /// not.
 #[derive(Clone)]
 pub struct DataMutex<T> 
-where T: Clone 
 {
     t: Arc<Mutex<T>>
 }
 
 impl<T> DataMutex<T> 
-where T: Clone
 {
+    pub fn new(t: T) -> Self {
+        Self {
+            t: Arc::new(Mutex::new(t))
+        }
+    }
     /// Lock the Mutex synchronously while inside a tokio runtime. Calling this method while
     /// outside of a tokio runtime will cause a panic.
     pub fn lock(&mut self) -> MutexGuard<T> {
