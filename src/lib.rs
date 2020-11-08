@@ -24,7 +24,7 @@ use tonic::codegen::StdError;
 use tokio::sync::{Mutex, MutexGuard, mpsc::{self, Sender, Receiver}};
 use tokio::runtime::Runtime;
 
-use rayon::ThreadPoolBuilder;
+use rayon::{ThreadPoolBuilder, ThreadPool};
 
 use std::convert::TryInto;
 use std::sync::Arc;
@@ -263,43 +263,45 @@ where A: TryInto<Endpoint> + Send + 'static + Clone,
         // its streams will panic if we do.
         let c = Runtime::new().unwrap().block_on(V1Client::connect(i.addr.clone())).unwrap();
         result_vec.push((c, i.t.clone()));
-        thread_pool.spawn(move || {
-            Runtime::new().unwrap().block_on(async move {
-                tokio::spawn(async move {
-                    start_single(i.addr, i.t, i.server_id, 
-                                 i.user_connected, 
-                                 i.user_disconnected, 
-                                 i.user_state_changed, 
-                                 i.user_text_message, 
-                                 i.channel_created, 
-                                 i.channel_removed, 
-                                 i.channel_state_changed, 
-                                 i.chat_filters, 
-                                 i.authenticators,
-                                 i.context_actions).await;
-                }).await.unwrap();
-            });
-        });
+        add_connection_to_thread_pool(&thread_pool, i);
     }
     result_vec
 }
 
-async fn start_single<T, A>(a: A, t: DataMutex<T>, server_id: u32, 
-                            user_connected: Vec<Handler<T>>, 
-                            user_disconnected: Vec<Handler<T>>, 
-                            user_state_changed: Vec<Handler<T>>, 
-                            user_text_message: Vec<Handler<T>>, 
-                            channel_created: Vec<Handler<T>>, 
-                            channel_removed: Vec<Handler<T>>, 
-                            channel_state_changed: Vec<Handler<T>>, 
-                            chat_filters: Vec<ChatFilter<T>>, 
-                            authenticators: Vec<Authenticator<T>>,
-                            context_actions: Vec<(ContextAction, Vec<ContextActionHandler<T>>)>)
+pub fn add_connection_to_thread_pool<A, T>(thread_pool: &ThreadPool, i: MurmurInterface<A, T>) 
 where T: Send + Clone + 'static,
-      A: TryInto<Endpoint> + Send + 'static,
+      A: TryInto<Endpoint> + Send + 'static + Clone,
       A::Error: Into<StdError>
 {
-    let c = V1Client::connect(a).await.unwrap();
+    thread_pool.spawn(move || {
+        runtime(async move {
+            tokio::spawn(async move {
+                start_single(i).await;
+            }).await.unwrap();
+        });
+    });
+}
+
+async fn start_single<A, T>(i: MurmurInterface<A, T>)
+where T: Send + Clone + 'static,
+      A: TryInto<Endpoint> + Send + 'static + Clone,
+      A::Error: Into<StdError>
+{
+    let t = i.t;
+    let addr = i.addr;
+    let server_id = i.server_id;
+    let user_connected = i.user_connected;
+    let user_disconnected = i.user_disconnected;
+    let user_state_changed = i.user_state_changed;
+    let user_text_message = i.user_text_message;
+    let channel_created = i.channel_created;
+    let channel_removed = i.channel_removed;
+    let channel_state_changed = i.channel_state_changed;
+    let chat_filters = i.chat_filters;
+    let authenticators = i.authenticators;
+    let context_actions = i.context_actions;
+
+    let c = V1Client::connect(addr).await.unwrap();
     let server = Server {
         id: server_id,
         running: Some(true),
