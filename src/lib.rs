@@ -24,7 +24,7 @@ use tonic::codegen::StdError;
 use tokio::sync::{Mutex, MutexGuard, mpsc::{self, Sender, Receiver}};
 use tokio::runtime::Runtime;
 
-use rayon::{ThreadPoolBuilder, ThreadPool};
+pub use rayon::{ThreadPoolBuilder, ThreadPool};
 
 use std::convert::TryInto;
 use std::sync::Arc;
