@@ -30,10 +30,11 @@ pub use rayon::{ThreadPoolBuilder, ThreadPool};
 use std::convert::TryInto;
 use std::sync::Arc;
 use std::marker::Send;
+use std::pin::Pin;
 
 // https://www.reddit.com/r/rust/comments/f7qrya/defining_an_async_function_type/
 
-pub type FutureBool = Box<dyn Future<Output = bool> + Send>;
+pub type FutureBool = Pin<Box<dyn Future<Output = bool> + Send>>;
 
 /// Function that handles Mumble server events. Returns a boolean which determines whether or not
 /// other functions will be allowed to process the event it has handled (similar to cases falling
