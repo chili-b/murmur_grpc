@@ -33,7 +33,7 @@ use std::marker::Send;
 
 // https://www.reddit.com/r/rust/comments/f7qrya/defining_an_async_function_type/
 
-type FutureBool = Box<dyn Future<Output = bool> + Unpin + Send>;
+pub type FutureBool = Box<dyn Future<Output = bool> + Unpin + Send>;
 
 /// Function that handles Mumble server events. Returns a boolean which determines whether or not
 /// other functions will be allowed to process the event it has handled (similar to cases falling
