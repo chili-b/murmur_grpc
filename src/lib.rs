@@ -34,23 +34,23 @@ use std::marker::Send;
 /// Function that handles Mumble server events. Returns a boolean which determines whether or not
 /// other functions will be allowed to process the event it has handled (similar to cases falling
 /// through in a switch statement from other languages).
-pub type Handler<T> = async fn(t: DataMutex<T>, c: Client, e: &Event) -> bool;
+pub type Handler<T> = fn(t: DataMutex<T>, c: Client, e: &Event) -> bool;
 
 /// Funtion that filters the text chat and determines whether to Block/Reject/Drop messages.
 /// Returns a boolean which determines whether or not other functions will be able to process the
 /// message it has filtered (similar to cases falling through in a switch statement from other languages). 
 /// The function's body should mutate `filter`.
-pub type ChatFilter<T> = async fn(t: DataMutex<T>, c: Client, filter: &mut Filter) -> bool;
+pub type ChatFilter<T> = fn(t: DataMutex<T>, c: Client, filter: &mut Filter) -> bool;
 
 /// Function that handles events on the Mumble server authentication stream. Returns a boolean
 /// which determines whether or not other functions will be able to process the authentication event
 /// it has handled (similar to cases falling through in a switch statement from other languages).
-pub type Authenticator<T> = async fn(t: DataMutex<T>, c: Client, response: &mut Response, request: &Request) -> bool;
+pub type Authenticator<T> = fn(t: DataMutex<T>, c: Client, response: &mut Response, request: &Request) -> bool;
 
 /// Function that handles events on the Mumble server context action stream. Returns a boolean
 /// which determines whether or not other functions will be able to process the authentication
 /// event it has handled (similar to cases falling through in a switch statement from other languages).
-pub type ContextActionHandler<T> = async fn(t: DataMutex<T>, c: Client, action: &ContextAction) -> bool;
+pub type ContextActionHandler<T> = fn(t: DataMutex<T>, c: Client, action: &ContextAction) -> bool;
 
 /// This struct is a wrapper over an asynchronous [Mutex](../tokio/sync/struct.Mutex.html) that
 /// allows the contained value to be accessed inside or outside a tokio runtime asynchronously or
