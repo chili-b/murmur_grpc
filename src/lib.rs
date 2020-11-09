@@ -14,8 +14,8 @@ use server::event::Type;
 use server::Event;
 use text_message::filter::Action;
 
-use futures::join;
-use futures::future::join_all;
+pub use futures::join;
+pub use futures::future::join_all;
 pub use futures::executor::block_on;
 use futures::Future;
 
