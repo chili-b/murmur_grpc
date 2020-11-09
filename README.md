@@ -14,9 +14,9 @@ The `text_message` function gets called for each message that is sent.
 ```rust
 use murmur_grpc::*;
 
-fn text_message(_t: DataMutex<()>, _c: Client, event: &Event) -> bool {
+fn text_message(_t: DataMutex<()>, _c: Client, event: &Event) -> FutureBool {
     println!("{}", event.message.as_ref().unwrap().text.as_ref().unwrap());
-    true
+    Box::pin(Future::ok(true))
 }
 
 fn main() {
