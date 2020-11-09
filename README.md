@@ -16,7 +16,9 @@ use murmur_grpc::*;
 
 fn text_message(_t: DataMutex<()>, _c: Client, event: &Event) -> FutureBool {
     println!("{}", event.message.as_ref().unwrap().text.as_ref().unwrap());
-    Box::pin(Future::ok(true))
+    // All of client's methods for communicating with Murmur are asynchronous so this function
+    // must return a future, even though we aren't doing anything asynchronous in this example.
+    future_from_bool(true)
 }
 
 fn main() {
