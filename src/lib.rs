@@ -31,26 +31,32 @@ use std::convert::TryInto;
 use std::sync::Arc;
 use std::marker::Send;
 
+use core::pin::Pin;
+
+// https://www.reddit.com/r/rust/comments/f7qrya/defining_an_async_function_type/
+
+type FutureBool = Pin<Box<dyn Future<Output = bool> + Send>>;
+
 /// Function that handles Mumble server events. Returns a boolean which determines whether or not
 /// other functions will be allowed to process the event it has handled (similar to cases falling
 /// through in a switch statement from other languages).
-pub type Handler<T> = fn(t: DataMutex<T>, c: Client, e: &Event) -> bool;
+pub type Handler<T> = fn(t: DataMutex<T>, c: Client, e: &Event) -> FutureBool;
 
 /// Funtion that filters the text chat and determines whether to Block/Reject/Drop messages.
 /// Returns a boolean which determines whether or not other functions will be able to process the
 /// message it has filtered (similar to cases falling through in a switch statement from other languages). 
 /// The function's body should mutate `filter`.
-pub type ChatFilter<T> = fn(t: DataMutex<T>, c: Client, filter: &mut Filter) -> bool;
+pub type ChatFilter<T> = fn(t: DataMutex<T>, c: Client, filter: &mut Filter) -> FutureBool;
 
 /// Function that handles events on the Mumble server authentication stream. Returns a boolean
 /// which determines whether or not other functions will be able to process the authentication event
 /// it has handled (similar to cases falling through in a switch statement from other languages).
-pub type Authenticator<T> = fn(t: DataMutex<T>, c: Client, response: &mut Response, request: &Request) -> bool;
+pub type Authenticator<T> = fn(t: DataMutex<T>, c: Client, response: &mut Response, request: &Request) -> FutureBool;
 
 /// Function that handles events on the Mumble server context action stream. Returns a boolean
 /// which determines whether or not other functions will be able to process the authentication
 /// event it has handled (similar to cases falling through in a switch statement from other languages).
-pub type ContextActionHandler<T> = fn(t: DataMutex<T>, c: Client, action: &ContextAction) -> bool;
+pub type ContextActionHandler<T> = fn(t: DataMutex<T>, c: Client, action: &ContextAction) -> FutureBool;
 
 /// This struct is a wrapper over an asynchronous [Mutex](../tokio/sync/struct.Mutex.html) that
 /// allows the contained value to be accessed inside or outside a tokio runtime asynchronously or
@@ -332,7 +338,7 @@ where T: Send + Clone + 'static,
                         Type::ChannelCreated      => handle_event(t.clone(), c.clone(), &channel_created, &event),
                         Type::ChannelRemoved      => handle_event(t.clone(), c.clone(), &channel_removed, &event),
                         Type::ChannelStateChanged => handle_event(t.clone(), c.clone(), &channel_state_changed, &event),
-                    }
+                    }.await;
                 }
             }
         })
@@ -348,7 +354,7 @@ where T: Send + Clone + 'static,
                 let mut filter_stream = c.text_message_filter(r).await.unwrap().into_inner();
                 while let Some(mut filter) = filter_stream.message().await.unwrap() {
                     for chat_filter in chat_filters.iter() {
-                        if !(chat_filter)(t.clone(), c.clone(), &mut filter) || filter.action() != Action::Accept {
+                        if !(chat_filter)(t.clone(), c.clone(), &mut filter).await || filter.action() != Action::Accept {
                             break;
                         }
                     }
@@ -368,7 +374,7 @@ where T: Send + Clone + 'static,
                 while let Some(request) = authenticator_stream.message().await.unwrap() {
                     let mut response = Response::default();
                     for authenticator in authenticators.iter() {
-                        if !(authenticator)(t.clone(), c.clone(), &mut response, &request) {
+                        if !(authenticator)(t.clone(), c.clone(), &mut response, &request).await {
                             break;
                         }
                     }
@@ -389,7 +395,7 @@ where T: Send + Clone + 'static,
                     let mut context_action_stream = c.context_action_events(action).await.unwrap().into_inner();
                     while let Some(context_action) = context_action_stream.message().await.unwrap() {
                         for handler in handlers.iter() {
-                            if !(handler)(t.clone(), c.clone(), &context_action) {
+                            if !(handler)(t.clone(), c.clone(), &context_action).await {
                                 break;
                             }
                         }
@@ -401,11 +407,11 @@ where T: Send + Clone + 'static,
     drop(join!(server_event_fut, authenticator_fut, chat_filter_fut, context_action_fut));
 }
 
-fn handle_event<T>(t: DataMutex<T>, c: Client, handlers: &Vec<Handler<T>>, event: &Event) 
+async fn handle_event<T>(t: DataMutex<T>, c: Client, handlers: &Vec<Handler<T>>, event: &Event) 
 where T: Send + Clone
 {
     for handler in handlers.iter() {
-        if !(handler)(t.clone(), c.clone(), event) {
+        if !(handler)(t.clone(), c.clone(), event).await {
             return;
         }
     }
