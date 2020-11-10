@@ -55,7 +55,7 @@ pub type Handler<T> = fn(t: DataMutex<T>, c: Client, e: &Event) -> FutureBool;
 /// Returns a boolean which determines whether or not other functions will be able to process the
 /// message it has filtered (similar to cases falling through in a switch statement from other languages). 
 /// The function's body should mutate `filter`.
-pub type ChatFilter<T> = fn(t: DataMutex<T>, c: Client, filter: &Filter) -> FutureBool;
+pub type ChatFilter<T> = fn(t: DataMutex<T>, c: Client, filter: &mut Filter) -> FutureBool;
 
 /// Function that handles events on the Mumble server authentication stream. Returns a boolean
 /// which determines whether or not other functions will be able to process the authentication event
