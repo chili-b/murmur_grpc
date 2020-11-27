@@ -1,3 +1,6 @@
+// The delay in seconds before trying to reconnect after server connection closes
+const RECONNECT_DELAY_SECONDS: u64 = 5;
+
 pub mod murmur_rpc {
     tonic::include_proto!("murmur_rpc");
 }
@@ -34,6 +37,7 @@ use std::convert::TryInto;
 use std::sync::Arc;
 use std::marker::Send;
 use std::pin::Pin;
+use std::{thread, time};
 
 // https://www.reddit.com/r/rust/comments/f7qrya/defining_an_async_function_type/
 
@@ -116,6 +120,8 @@ where A: TryInto<Endpoint> + Send + Clone,
     pub addr: A,
     /// The virtual server id to connect to.
     pub server_id: u32,
+    /// Whether or not to automatically try to reconnect when the server connection closes
+    pub auto_reconnect: bool,
     /// Functions to be called when a user connects.
     pub user_connected: Vec<Handler<T>>,
     /// Functions to be called when a user disconnects.
@@ -145,9 +151,10 @@ where A: TryInto<Endpoint> + Send + Clone,
 {
     pub fn new(t: T, addr: A) -> Self {
         Self {
-            t: DataMutex{t: Arc::new(Mutex::new(t))},
+            t: DataMutex::new(t),
             addr: addr,
             server_id: 1,
+            auto_reconnect: false,
             user_connected: vec![],
             user_disconnected: vec![],
             user_state_changed: vec![],
@@ -300,9 +307,17 @@ where T: Send + Clone + 'static,
     thread_pool.spawn(move || {
         runtime(async move {
             tokio::spawn(async move {
-                start_single(i).await;
-                s.send(())
-                    .expect("Sending indication that connection to server has closed");
+                loop {
+                    let i_clone = i.clone();
+                    start_single(i_clone).await;
+                    // send indication that the server connection has closed.
+                    s.send(())
+                        .expect("Sending indication that connection to server has closed");
+                    // Don't iterate more than once if this interface is not configure to
+                    // auto-reconnect.
+                    if !i.auto_reconnect {break;}
+                    thread::sleep(time::Duration::from_secs(RECONNECT_DELAY_SECONDS));
+                }
             }).await.unwrap();
         });
     });
@@ -327,7 +342,12 @@ where T: Send + Clone + 'static,
     let authenticators = i.authenticators;
     let context_actions = i.context_actions;
 
-    let c = V1Client::connect(addr).await.unwrap();
+    let c = if let Ok(c) = V1Client::connect(addr).await {
+        c
+    } else {
+        return;
+    };
+
     let server = Server {
         id: server_id,
         running: Some(true),
