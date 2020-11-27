@@ -24,6 +24,9 @@ use tonic::codegen::StdError;
 
 use tokio::sync::{Mutex, MutexGuard, mpsc::{self, Sender, Receiver}};
 use tokio::runtime::Runtime;
+use std::sync::mpsc as std_mpsc;
+type ServerDisconnectSender = std_mpsc::Sender<()>;
+type ServerDisconnectReceiver = std_mpsc::Receiver<()>;
 
 pub use rayon::{ThreadPoolBuilder, ThreadPool};
 
@@ -257,20 +260,21 @@ where A: TryInto<Endpoint> + Send + Clone,
 /// ```
 /// use murmur_grpc::*;
 ///
-/// fn text_message(_t: DataMutex<()>, _c: Client, event: &Event) -> bool {
+/// fn text_message(_t: DataMutex<()>, _c: Client, event: &Event) -> FutureBool {
 ///     println!("{}", event.message.as_ref().unwrap().text.as_ref().unwrap());
-///     true
+///     future_from_bool(true)
 /// }
 ///
 /// fn main() {
 ///     let i = MurmurInterfaceBuilder::new((), "http://127.0.0.1:50051")
 ///         .user_text_message(vec![text_message])
 ///         .build();
-///     murmur_grpc::start(1, vec![i]);
-///     std::thread::park();
+///     let server_disconnect_receiver = murmur_grpc::start(1, vec![i])[0].2;
+///     // wait for the connection to the server to close.
+///     server_disconnect_receiver.recv();
 /// }
 /// ```
-pub fn start<A, T>(num_threads: usize, interfaces: Vec<MurmurInterface<A, T>>) -> Vec<(Client, DataMutex<T>)>
+pub fn start<A, T>(num_threads: usize, interfaces: Vec<MurmurInterface<A, T>>) -> Vec<(Client, DataMutex<T>, ServerDisconnectReceiver)>
 where A: TryInto<Endpoint> + Send + 'static + Clone,
       A::Error: Into<StdError>,
       T: Send + Clone + 'static,
@@ -278,16 +282,17 @@ where A: TryInto<Endpoint> + Send + 'static + Clone,
     let thread_pool = ThreadPoolBuilder::new().num_threads(num_threads).build().unwrap();
     let mut result_vec = vec![];
     for i in interfaces.into_iter() {
+        let (s, r) = std_mpsc::channel();
         // for whatever reason, we cannot pass this client into each child thread as trying to use
         // its streams will panic if we do.
         let c = Runtime::new().unwrap().block_on(V1Client::connect(i.addr.clone())).unwrap();
-        result_vec.push((c, i.t.clone()));
-        add_connection_to_thread_pool(&thread_pool, i);
+        result_vec.push((c, i.t.clone(), r));
+        add_connection_to_thread_pool(&thread_pool, i, s);
     }
     result_vec
 }
 
-pub fn add_connection_to_thread_pool<A, T>(thread_pool: &ThreadPool, i: MurmurInterface<A, T>) 
+pub fn add_connection_to_thread_pool<A, T>(thread_pool: &ThreadPool, i: MurmurInterface<A, T>, s: ServerDisconnectSender)
 where T: Send + Clone + 'static,
       A: TryInto<Endpoint> + Send + 'static + Clone,
       A::Error: Into<StdError>
@@ -296,6 +301,8 @@ where T: Send + Clone + 'static,
         runtime(async move {
             tokio::spawn(async move {
                 start_single(i).await;
+                s.send(())
+                    .expect("Sending indication that connection to server has closed");
             }).await.unwrap();
         });
     });
@@ -336,8 +343,10 @@ where T: Send + Clone + 'static,
                 || !user_text_message.is_empty() || !channel_created.is_empty() || !channel_removed.is_empty() 
                     || !channel_state_changed.is_empty() 
             {
-                let mut event_stream = c.server_events(server).await.unwrap().into_inner();
-                while let Some(event) = event_stream.message().await.unwrap() {
+                let mut event_stream = c.server_events(server).await
+                    .expect("Connecting to the event stream")
+                    .into_inner();
+                while let Ok(Some(event)) = event_stream.message().await {
                     // the generated method name 'type' conflics with a rust keyword so 'r#' is needed
                     match event.r#type() {
                         Type::UserConnected       => handle_event(t.clone(), c.clone(), &user_connected, &event),
@@ -357,11 +366,14 @@ where T: Send + Clone + 'static,
         let mut c = c.clone();
         let t = t.clone();
         let (mut s, r): (Sender<Filter>, Receiver<Filter>) = mpsc::channel(1);
-        s.send(Filter {server: Some(server.clone()), action: None, message: None}).await.unwrap();
+        s.send(Filter {server: Some(server.clone()), action: None, message: None}).await
+            .expect("Sending initial message over filter stream to activate it");
         tokio::task::spawn(async move {
             if !chat_filters.is_empty() {
-                let mut filter_stream = c.text_message_filter(r).await.unwrap().into_inner();
-                while let Some(mut filter) = filter_stream.message().await.unwrap() {
+                let mut filter_stream = c.text_message_filter(r).await
+                    .expect("Connecting to filter stream")
+                    .into_inner();
+                while let Ok(Some(mut filter)) = filter_stream.message().await {
                     for chat_filter in chat_filters.iter() {
                         if !(chat_filter)(t.clone(), c.clone(), &mut filter).await || filter.action() != Action::Accept {
                             break;
@@ -379,8 +391,10 @@ where T: Send + Clone + 'static,
         let (mut s, r): (Sender<Response>, Receiver<Response>) = mpsc::channel(1);
         tokio::task::spawn(async move {
             if !authenticators.is_empty() {
-                let mut authenticator_stream = c.authenticator_stream(r).await.unwrap().into_inner();
-                while let Some(request) = authenticator_stream.message().await.unwrap() {
+                let mut authenticator_stream = c.authenticator_stream(r).await
+                    .expect("Connecting to authenticator stream")
+                    .into_inner();
+                while let Ok(Some(request)) = authenticator_stream.message().await {
                     let mut response = Response::default();
                     for authenticator in authenticators.iter() {
                         if !(authenticator)(t.clone(), c.clone(), &mut response, &request).await {
@@ -401,8 +415,10 @@ where T: Send + Clone + 'static,
             let t = t.clone();
             tokio::task::spawn(async move {
                 if !handlers.is_empty() {
-                    let mut context_action_stream = c.context_action_events(action).await.unwrap().into_inner();
-                    while let Some(context_action) = context_action_stream.message().await.unwrap() {
+                    let mut context_action_stream = c.context_action_events(action).await
+                        .expect("Connecting to context action stream")
+                        .into_inner();
+                    while let Ok(Some(context_action)) = context_action_stream.message().await {
                         for handler in handlers.iter() {
                             if !(handler)(t.clone(), c.clone(), &context_action).await {
                                 break;
