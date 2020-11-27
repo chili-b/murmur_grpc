@@ -27,7 +27,8 @@ fn main() {
     let i = MurmurInterfaceBuilder::new((), "http://127.0.0.1:50051")
         .user_text_message(vec![text_message])
         .build();
-    murmur_grpc::start(1, vec![i]);
-    std::thread::park();
+    server_disconnect_receiver = murmur_grpc::start(1, vec![i])[0].2;
+    // keep the main thread alive until the server connection closes
+    server_disconnect_receiver.recv();
 }
 ```
