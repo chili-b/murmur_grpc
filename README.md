@@ -6,7 +6,7 @@ This library was primarily created for my own purposes in order to take the pain
 All of the functionality is available, but no extensive testing has been done at this point so your mileage may vary. The documentation
 is very sparse at the moment because I am very stupid, but I intend to improve it as the library matures.
 
-### Examples
+### Example Usage
 
 This example prints the contents of every message that is sent to a Mumble server. 
 The `text_message` function gets called for each message that is sent. Internally,
