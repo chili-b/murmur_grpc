@@ -10,7 +10,7 @@ is very sparse at the moment because I am very stupid, but I intend to improve i
 
 This example prints the contents of every message that is sent to a Mumble server. 
 The `text_message` function gets called for each message that is sent. Internally,
-the library is asynchronous, but to get around that a helper function, `future_from_bool`
+the library is asynchronous, but to get around that a helper function named `future_from_bool`
 is provided which is demonstrated in the example below.
 
 ```rust
