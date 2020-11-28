@@ -1,7 +1,7 @@
 // The delay in seconds before trying to reconnect after server connection closes
 const RECONNECT_DELAY_SECONDS: u64 = 5;
 
-pub mod murmur_rpc {
+mod murmur_rpc {
     tonic::include_proto!("murmur_rpc");
 }
 
@@ -10,16 +10,18 @@ use murmur_rpc::v1_client::V1Client;
 /// which owns the methods that communicate with the Mumble server.
 pub type Client = V1Client<tonic::transport::Channel>;
 
+/// Gererated from the Murmur Protocol Buffer file
 pub use murmur_rpc::*;
+
 use text_message::Filter;
 use authenticator::{Request, Response};
 use server::event::Type;
 use server::Event;
 use text_message::filter::Action;
 
-pub use futures::join;
-pub use futures::future::join_all;
-pub use futures::executor::block_on;
+use futures::join;
+use futures::future::join_all;
+use futures::executor::block_on;
 use futures::Future;
 
 use tonic::transport::Endpoint;
@@ -27,11 +29,12 @@ use tonic::codegen::StdError;
 
 use tokio::sync::{Mutex, MutexGuard, mpsc::{self, Sender, Receiver}};
 use tokio::runtime::Runtime;
+
 use std::sync::mpsc as std_mpsc;
 type ServerDisconnectSender = std_mpsc::Sender<()>;
 type ServerDisconnectReceiver = std_mpsc::Receiver<()>;
 
-pub use rayon::{ThreadPoolBuilder, ThreadPool};
+use rayon::{ThreadPoolBuilder, ThreadPool};
 
 use std::convert::TryInto;
 use std::sync::Arc;
