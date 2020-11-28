@@ -294,12 +294,12 @@ where A: TryInto<Endpoint> + Send + 'static + Clone,
         // its streams will panic if we do.
         let c = Runtime::new().unwrap().block_on(V1Client::connect(i.addr.clone())).unwrap();
         result_vec.push((c, i.t.clone(), r));
-        add_connection_to_thread_pool(&thread_pool, i, s);
+        add_connection_to_thread_pool(&thread_pool, i, Some(s));
     }
     result_vec
 }
 
-pub fn add_connection_to_thread_pool<A, T>(thread_pool: &ThreadPool, i: MurmurInterface<A, T>, s: ServerDisconnectSender)
+pub fn add_connection_to_thread_pool<A, T>(thread_pool: &ThreadPool, i: MurmurInterface<A, T>, s: Option<ServerDisconnectSender>)
 where T: Send + Clone + 'static,
       A: TryInto<Endpoint> + Send + 'static + Clone,
       A::Error: Into<StdError>
@@ -311,8 +311,10 @@ where T: Send + Clone + 'static,
                     let i_clone = i.clone();
                     start_single(i_clone).await;
                     // send indication that the server connection has closed.
-                    s.send(())
-                        .expect("Sending indication that connection to server has closed");
+                    if let Some(s) = s {
+                        s.send(())
+                            .expect("Sending indication that connection to server has closed");
+                    }
                     // Don't iterate more than once if this interface is not configure to
                     // auto-reconnect.
                     if !i.auto_reconnect {break;}
