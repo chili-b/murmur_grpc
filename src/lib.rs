@@ -311,7 +311,7 @@ where T: Send + Clone + 'static,
                     let i_clone = i.clone();
                     start_single(i_clone).await;
                     // send indication that the server connection has closed.
-                    if let Some(s) = s {
+                    if let Some(s) = &s {
                         s.send(())
                             .expect("Sending indication that connection to server has closed");
                     }
