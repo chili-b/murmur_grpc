@@ -77,6 +77,12 @@ pub type Authenticator<T> = fn(t: DataMutex<T>, c: Client, response: &mut Respon
 /// event it has handled (similar to cases falling through in a switch statement from other languages).
 pub type ContextActionHandler<T> = fn(t: DataMutex<T>, c: Client, action: &ContextAction) -> FutureBool;
 
+/// Functicon that gets called in response to the connection to Murmur either opening.
+pub type ConnectHandler<T> = fn(t: DataMutex<T>, c: Client) -> FutureBool;
+
+/// Function that gets called in response to the connection to Murmur closing.
+pub type DisconnectHandler<T> = fn(t: DataMutex<T>) -> FutureBool;
+
 /// This struct is a wrapper over an asynchronous [Mutex](../tokio/sync/struct.Mutex.html) that
 /// allows the contained value to be accessed inside or outside a tokio runtime asynchronously or
 /// not.
@@ -145,6 +151,10 @@ where A: TryInto<Endpoint> + Send + Clone,
     pub authenticators: Vec<Authenticator<T>>,
     /// Context actions to parse along with the functions that will parse them.
     pub context_actions: Vec<(ContextAction, Vec<ContextActionHandler<T>>)>,
+    /// Functions to be called when the connection to Murmur opens
+    pub server_connected: Vec<ConnectHandler<T>>,
+    /// Functions to be called when the connection to Murmur closes
+    pub server_disconnected: Vec<DisconnectHandler<T>>
 }
 
 impl<A, T> MurmurInterface<A, T> 
@@ -168,6 +178,8 @@ where A: TryInto<Endpoint> + Send + Clone,
             chat_filters: vec![],
             authenticators: vec![],
             context_actions: vec![],
+            server_connected: vec![],
+            server_disconnected: vec![],
         }
     }
 }
@@ -241,7 +253,15 @@ where A: TryInto<Endpoint> + Send + Clone,
     pub fn context_actions(mut self, context_actions: Vec<(ContextAction, Vec<ContextActionHandler<T>>)>) -> Self {
         self.i.context_actions = context_actions;
         self
-    } 
+    }
+    pub fn server_connected(mut self, connection_handlers: Vec<ConnectHandler<T>>) -> Self {
+        self.i.server_connected = connection_handlers;
+        self
+    }
+    pub fn server_disconnected(mut self, disconnection_handlers: Vec<DisconnectHandler<T>>) -> Self {
+        self.i.server_disconnected = disconnection_handlers;
+        self
+    }
     pub fn build(&self) -> MurmurInterface<A, T> {
         self.i.clone()
     }
@@ -346,12 +366,20 @@ where T: Send + Clone + 'static,
     let chat_filters = i.chat_filters;
     let authenticators = i.authenticators;
     let context_actions = i.context_actions;
+    let server_connected = i.server_connected;
+    let server_disconnected = i.server_disconnected;
 
     let c = if let Ok(c) = V1Client::connect(addr).await {
         c
     } else {
         return;
     };
+
+    for connect_handler in server_connected.iter() {
+        if !(connect_handler)(t.clone(), c.clone()).await {
+            break;
+        }
+    }
 
     let server = Server {
         id: server_id,
@@ -454,7 +482,14 @@ where T: Send + Clone + 'static,
             })
         }))
     };
+
     drop(join!(server_event_fut, authenticator_fut, chat_filter_fut, context_action_fut));
+
+    for disconnect_handler in server_disconnected.iter() {
+        if !(disconnect_handler)(t.clone()).await {
+            break;
+        }
+    }
 }
 
 async fn handle_event<T>(t: DataMutex<T>, c: Client, handlers: &Vec<Handler<T>>, event: &Event) 
