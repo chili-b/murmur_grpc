@@ -30,14 +30,13 @@ use tonic::transport::Endpoint;
 use tonic::codegen::StdError;
 
 use tokio::sync::{Mutex, MutexGuard, mpsc::{self, Sender, Receiver}};
-pub use tokio::runtime::Runtime;
-//use tokio::task::block_in_place;
+use tokio::runtime::Runtime;
 
 use std::sync::mpsc as std_mpsc;
 type ServerDisconnectSender = std_mpsc::Sender<()>;
 type ServerDisconnectReceiver = std_mpsc::Receiver<()>;
 
-//pub use rayon::{ThreadPoolBuilder, ThreadPool};
+pub use rayon::{ThreadPoolBuilder, ThreadPool};
 
 use std::convert::TryInto;
 use std::sync::Arc;
@@ -95,7 +94,7 @@ pub struct DataMutex<T>
     t: Arc<Mutex<T>>
 }
 
-impl<T: std::marker::Send> DataMutex<T> 
+impl<T> DataMutex<T> 
 {
     pub fn new(t: T) -> Self {
         Self {
@@ -113,13 +112,11 @@ impl<T: std::marker::Send> DataMutex<T>
         self.t.lock().await
     }
 
-    /*
     /// Lock the Mutex synchronously while outside a tokio runtime. Calling this method inside a
     /// tokio runtime will cause a panic.
     pub fn lock_outside_runtime(&mut self) -> MutexGuard<T> {
-        runtime(self.t.lock())
+        Runtime::new().unwrap().block_on(self.t.lock())
     }
-    */
 }
 
 #[derive(Clone)]
@@ -314,38 +311,42 @@ where A: TryInto<Endpoint> + Send + 'static + Clone,
       A::Error: Into<StdError>,
       T: Send + Clone + 'static,
 {
-    let rt = Runtime::new().unwrap();
+    let thread_pool = ThreadPoolBuilder::new().num_threads(num_threads).build().unwrap();
     let mut result_vec = vec![];
     for i in interfaces.into_iter() {
         let (s, r) = std_mpsc::channel();
         // for whatever reason, we cannot pass this client into each child thread as trying to use
         // its streams will panic if we do.
-        let c = runtime(V1Client::connect(i.addr.clone())).unwrap();
+        let c = Runtime::new().unwrap().block_on(V1Client::connect(i.addr.clone())).unwrap();
         result_vec.push((c, i.t.clone(), r));
-        add_connection_to_thread_pool(&rt, i, Some(s));
+        add_connection_to_thread_pool(&thread_pool, i, Some(s));
     }
     result_vec
 }
 
-pub fn add_connection_to_thread_pool<A, T>(rt: &Runtime, i: MurmurInterface<A, T>, s: Option<ServerDisconnectSender>)
+pub fn add_connection_to_thread_pool<A, T>(thread_pool: &ThreadPool, i: MurmurInterface<A, T>, s: Option<ServerDisconnectSender>)
 where T: Send + Clone + 'static,
       A: TryInto<Endpoint> + Send + 'static + Clone,
       A::Error: Into<StdError>
 {
-    let _guard = rt.enter();
-    rt.block_on(async move {
-        loop {
-            let i_clone = i.clone();
-            start_single(i_clone).await;
-            // send indication that the server connection has closed.
-            if let Some(s) = &s {
-                s.send(())
-                    .expect("Sending indication that connection to server has closed");
-            }
-            // Don't iterate more than once if this interface is not configure to
-            // auto-reconnect.
-            if !i.auto_reconnect {break;}
-        }
+    thread_pool.spawn(move || {
+        runtime(async move {
+            tokio::spawn(async move {
+                loop {
+                    let i_clone = i.clone();
+                    start_single(i_clone).await;
+                    // send indication that the server connection has closed.
+                    if let Some(s) = &s {
+                        s.send(())
+                            .expect("Sending indication that connection to server has closed");
+                    }
+                    // Don't iterate more than once if this interface is not configure to
+                    // auto-reconnect.
+                    if !i.auto_reconnect {break;}
+                    thread::sleep(time::Duration::from_secs(RECONNECT_DELAY_SECONDS));
+                }
+            }).await.unwrap();
+        });
     });
 }
 
@@ -505,8 +506,6 @@ where T: Send + Clone
 
 /// Create a runtime in order to execute a single Future outside of a tokio runtime. This function
 /// will panic if it is called inside of a tokio runtime.
-pub fn runtime<F: 'static + Future + std::marker::Send>(f: F) -> F::Output 
-where F::Output: std::marker::Send 
-{
+pub fn runtime<F: Future>(f: F) -> F::Output {
     Runtime::new().unwrap().block_on(f)
 }
