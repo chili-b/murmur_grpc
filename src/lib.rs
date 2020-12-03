@@ -95,7 +95,7 @@ pub struct DataMutex<T>
     t: Arc<Mutex<T>>
 }
 
-impl<T> DataMutex<T> 
+impl<T: std::marker::Send> DataMutex<T> 
 {
     pub fn new(t: T) -> Self {
         Self {
@@ -113,11 +113,13 @@ impl<T> DataMutex<T>
         self.t.lock().await
     }
 
+    /*
     /// Lock the Mutex synchronously while outside a tokio runtime. Calling this method inside a
     /// tokio runtime will cause a panic.
     pub fn lock_outside_runtime(&mut self) -> MutexGuard<T> {
         runtime(self.t.lock())
     }
+    */
 }
 
 #[derive(Clone)]
@@ -507,6 +509,8 @@ where T: Send + Clone
 
 /// Create a runtime in order to execute a single Future outside of a tokio runtime. This function
 /// will panic if it is called inside of a tokio runtime.
-pub fn runtime<F: Future>(f: F) -> F::Output {
-    runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(f)
+pub fn runtime<F: 'static + Future + std::marker::Send>(f: F) -> F::Output 
+where F::Output: std::marker::Send 
+{
+    block_on(runtime::Builder::new_current_thread().enable_all().build().unwrap().spawn(f)).unwrap()
 }
