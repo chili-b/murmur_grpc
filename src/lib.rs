@@ -512,5 +512,7 @@ where T: Send + Clone
 pub fn runtime<F: 'static + Future + std::marker::Send>(f: F) -> F::Output 
 where F::Output: std::marker::Send 
 {
-    runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(f)
+    let rt = runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let _guard = rt.enter();
+    rt.block_on(f)
 }
