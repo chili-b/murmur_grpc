@@ -430,7 +430,7 @@ where T: Send + Clone + 'static,
                     .into_inner();
                 while let Ok(Some(mut filter)) = filter_stream.message().await {
                     for chat_filter in chat_filters.iter() {
-                        if !(chat_filter)(t.clone(), c.clone(), &mut filter).await || filter.action() != Action::Accept {
+                        if !(chat_filter)(t.clone(), c.clone(), &mut filter).await {
                             break;
                         }
                     }
