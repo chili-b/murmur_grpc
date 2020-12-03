@@ -1,6 +1,8 @@
 // The delay in seconds before trying to reconnect after server connection closes
 const RECONNECT_DELAY_SECONDS: u64 = 5;
 
+const CHANNEL_BUFFER_SIZE: usize = 300;
+
 mod murmur_rpc {
     tonic::include_proto!("murmur_rpc");
 }
@@ -418,7 +420,7 @@ where T: Send + Clone + 'static,
     let chat_filter_fut = {
         let mut c = c.clone();
         let t = t.clone();
-        let (mut s, r): (Sender<Filter>, Receiver<Filter>) = mpsc::channel(1);
+        let (mut s, r): (Sender<Filter>, Receiver<Filter>) = mpsc::channel(CHANNEL_BUFFER_SIZE);
         s.send(Filter {server: Some(server.clone()), action: None, message: None}).await
             .expect("Sending initial message over filter stream to activate it");
         tokio::task::spawn(async move {
@@ -441,7 +443,7 @@ where T: Send + Clone + 'static,
     let authenticator_fut = {
         let mut c = c.clone();
         let t = t.clone();
-        let (mut s, r): (Sender<Response>, Receiver<Response>) = mpsc::channel(1);
+        let (mut s, r): (Sender<Response>, Receiver<Response>) = mpsc::channel(CHANNEL_BUFFER_SIZE);
         tokio::task::spawn(async move {
             if !authenticators.is_empty() {
                 let mut authenticator_stream = c.authenticator_stream(r).await
