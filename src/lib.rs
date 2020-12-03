@@ -335,7 +335,7 @@ where T: Send + Clone + 'static,
     thread_pool.spawn(move || {
         //let rt = runtime::Builder::new_current_thread().enable_all().build().unwrap();
         let rt = Runtime::new().unwrap();
-        let _guard = rt.enter();
+        //let _guard = rt.enter();
         rt.block_on(async move {
             tokio::spawn(async move {
                 loop {
