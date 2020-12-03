@@ -333,8 +333,10 @@ where T: Send + Clone + 'static,
       A::Error: Into<StdError>
 {
     thread_pool.spawn(move || {
-        runtime(async move {
-            //tokio::spawn(async move {
+        let rt = runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let _guard = rt.enter();
+        rt.block_on(async move {
+            tokio::spawn(async move {
                 loop {
                     let i_clone = i.clone();
                     start_single(i_clone).await;
@@ -348,7 +350,7 @@ where T: Send + Clone + 'static,
                     if !i.auto_reconnect {break;}
                     thread::sleep(time::Duration::from_secs(RECONNECT_DELAY_SECONDS));
                 }
-            //}).await.unwrap();
+            }).await.unwrap();
         });
     });
 }
@@ -445,7 +447,8 @@ where T: Send + Clone + 'static,
     // AUTHENTICATOR
     let authenticator_fut = {
         let mut c = c.clone();
-        let t = t.clone();
+        let t = t.clone();lling execute here results in a panic
+// current_thread::spawn(
         let (mut s, r): (Sender<Response>, Receiver<Response>) = mpsc::channel(CHANNEL_BUFFER_SIZE);
         tokio::task::spawn(async move {
             if !authenticators.is_empty() {
@@ -467,7 +470,8 @@ where T: Send + Clone + 'static,
     // CONTEXT MENU ACTIONS
     let context_action_fut = {
         let c = c.clone();
-        let t = t.clone();
+        let t = t.clone();lling execute here results in a panic
+// current_thread::spawn(
         join_all(context_actions.into_iter().map(|(action, handlers)| {
             let mut c = c.clone();
             let t = t.clone();
@@ -512,7 +516,5 @@ where T: Send + Clone
 pub fn runtime<F: 'static + Future + std::marker::Send>(f: F) -> F::Output 
 where F::Output: std::marker::Send 
 {
-    let rt = runtime::Builder::new_current_thread().enable_all().build().unwrap();
-    let _guard = rt.enter();
-    rt.block_on(f)
+    runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(f)
 }
