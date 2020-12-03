@@ -334,7 +334,7 @@ where T: Send + Clone + 'static,
 {
     thread_pool.spawn(move || {
         runtime(async move {
-            //tokio::spawn(async move {
+            tokio::spawn(async move {
                 loop {
                     let i_clone = i.clone();
                     start_single(i_clone).await;
@@ -348,7 +348,7 @@ where T: Send + Clone + 'static,
                     if !i.auto_reconnect {break;}
                     thread::sleep(time::Duration::from_secs(RECONNECT_DELAY_SECONDS));
                 }
-            //}).await.unwrap();
+            }).await.unwrap();
         });
     });
 }
