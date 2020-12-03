@@ -116,7 +116,7 @@ impl<T> DataMutex<T>
     /// Lock the Mutex synchronously while outside a tokio runtime. Calling this method inside a
     /// tokio runtime will cause a panic.
     pub fn lock_outside_runtime(&mut self) -> MutexGuard<T> {
-        Runtime::new().unwrap().block_on(self.t.lock())
+        runtime(self.t.lock())
     }
 }
 
@@ -318,7 +318,7 @@ where A: TryInto<Endpoint> + Send + 'static + Clone,
         let (s, r) = std_mpsc::channel();
         // for whatever reason, we cannot pass this client into each child thread as trying to use
         // its streams will panic if we do.
-        let c = Runtime::new().unwrap().block_on(V1Client::connect(i.addr.clone())).unwrap();
+        let c = runtime(V1Client::connect(i.addr.clone())).unwrap();
         result_vec.push((c, i.t.clone(), r));
         add_connection_to_thread_pool(&thread_pool, i, Some(s));
     }
