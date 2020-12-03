@@ -19,7 +19,6 @@ use text_message::Filter;
 use authenticator::{Request, Response};
 use server::event::Type;
 use server::Event;
-use text_message::filter::Action;
 
 use futures::join;
 use futures::future::join_all;
@@ -30,19 +29,13 @@ use tonic::transport::Endpoint;
 use tonic::codegen::StdError;
 
 use tokio::sync::{Mutex, MutexGuard, mpsc::{self, Sender, Receiver}};
-use tokio::runtime::{Builder, Runtime};
-
-use std::sync::mpsc as std_mpsc;
-type ServerDisconnectSender = std_mpsc::Sender<()>;
-type ServerDisconnectReceiver = std_mpsc::Receiver<()>;
-
-pub use rayon::{ThreadPoolBuilder, ThreadPool};
+use tokio::runtime::Builder;
 
 use std::convert::TryInto;
 use std::sync::Arc;
 use std::marker::Send;
 use std::pin::Pin;
-use std::{thread, time};
+use std::{thread::{self, JoinHandle}, time};
 
 // https://www.reddit.com/r/rust/comments/f7qrya/defining_an_async_function_type/
 
@@ -115,7 +108,7 @@ impl<T> DataMutex<T>
     /// Lock the Mutex synchronously while outside a tokio runtime. Calling this method inside a
     /// tokio runtime will cause a panic.
     pub fn lock_outside_runtime(&mut self) -> MutexGuard<T> {
-        Runtime::new().unwrap().block_on(self.t.lock())
+        runtime(self.t.lock())
     }
 }
 
@@ -186,7 +179,7 @@ where A: TryInto<Endpoint> + Send + Clone,
     }
 }
 
-pub struct MurmurInterfaceBuilder<A, T> 
+pub struct MurmurInterfaceBuilder<A, T>
 where A: TryInto<Endpoint> + Send + Clone,
       A::Error: Into<StdError>,
       T: Send + Clone,
@@ -282,73 +275,43 @@ where A: TryInto<Endpoint> + Send + Clone,
 ///
 /// Returns a Vec of tuples. The first tuple element is the Client needed to communicate with each
 /// server. The second tuple element is a DataMutex that contains the persistent data for each
-/// server.
+/// server. The third tuple element is a JoinHandle<()> that can be used to detect when the
+/// connection to the server closes. The MurmurInterface passed can alternatively be configured to
+/// auto-reconnect, so if that is the beahvior you desire you don't need to worry about the
+/// JoinHandle
 ///
-/// # Example
-///
-/// This is an example which shows how to print the contents of every text message sent to a server
-/// into the console. The `text_message` function will be called every time a text message is sent.
-///
-/// ```
-/// use murmur_grpc::*;
-///
-/// fn text_message(_t: DataMutex<()>, _c: Client, event: &Event) -> FutureBool {
-///     println!("{}", event.message.as_ref().unwrap().text.as_ref().unwrap());
-///     future_from_bool(true)
-/// }
-///
-/// fn main() {
-///     let i = MurmurInterfaceBuilder::new((), "http://127.0.0.1:50051")
-///         .user_text_message(vec![text_message])
-///         .build();
-///     let server_disconnect_receiver = murmur_grpc::start(1, vec![i])[0].2;
-///     // wait for the connection to the server to close.
-///     server_disconnect_receiver.recv();
-/// }
-/// ```
-pub fn start<A, T>(num_threads: usize, interfaces: Vec<MurmurInterface<A, T>>) -> Vec<(Client, DataMutex<T>, ServerDisconnectReceiver)>
+pub fn start<A, T>(interfaces: Vec<MurmurInterface<A, T>>) -> Vec<(Client, DataMutex<T>, JoinHandle<()>)>
 where A: TryInto<Endpoint> + Send + 'static + Clone,
       A::Error: Into<StdError>,
       T: Send + Clone + 'static,
 {
-    let thread_pool = ThreadPoolBuilder::new().num_threads(num_threads).build().unwrap();
     let mut result_vec = vec![];
     for i in interfaces.into_iter() {
-        let (s, r) = std_mpsc::channel();
         // for whatever reason, we cannot pass this client into each child thread as trying to use
         // its streams will panic if we do.
-        let c = Runtime::new().unwrap().block_on(V1Client::connect(i.addr.clone())).unwrap();
-        result_vec.push((c, i.t.clone(), r));
-        add_connection_to_thread_pool(&thread_pool, i, Some(s));
+        let c = runtime(V1Client::connect(i.addr.clone())).unwrap();
+        result_vec.push((c, i.t.clone(), start_connection(i)));
     }
     result_vec
 }
 
-pub fn add_connection_to_thread_pool<A, T>(thread_pool: &ThreadPool, i: MurmurInterface<A, T>, s: Option<ServerDisconnectSender>)
+pub fn start_connection<A, T>(i: MurmurInterface<A, T>) -> JoinHandle<()>
 where T: Send + Clone + 'static,
       A: TryInto<Endpoint> + Send + 'static + Clone,
       A::Error: Into<StdError>
 {
-//    thread_pool.spawn(move || {
-    std::thread::spawn(move || {
+    thread::spawn(move || {
         runtime(async move {
-            //tokio::spawn(async move {
-                loop {
-                    let i_clone = i.clone();
-                    start_single(i_clone).await;
-                    // send indication that the server connection has closed.
-                    if let Some(s) = &s {
-                        s.send(())
-                            .expect("Sending indication that connection to server has closed");
-                    }
-                    // Don't iterate more than once if this interface is not configure to
-                    // auto-reconnect.
-                    if !i.auto_reconnect {break;}
-                    thread::sleep(time::Duration::from_secs(RECONNECT_DELAY_SECONDS));
-                }
-            //}).await.unwrap();
+            loop {
+                let i_clone = i.clone();
+                start_single(i_clone).await;
+                // Don't iterate more than once if this interface is not configure to
+                // auto-reconnect.
+                if !i.auto_reconnect {break;}
+                thread::sleep(time::Duration::from_secs(RECONNECT_DELAY_SECONDS));
+            }
         });
-    });
+    })
 }
 
 async fn start_single<A, T>(i: MurmurInterface<A, T>)
@@ -514,5 +477,4 @@ pub fn runtime<F: Future>(f: F) -> F::Output {
         .build()
         .unwrap()
         .block_on(f)
-    //Runtime::new().unwrap().block_on(f)
 }
