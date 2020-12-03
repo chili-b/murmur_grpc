@@ -508,5 +508,5 @@ where T: Send + Clone
 /// Create a runtime in order to execute a single Future outside of a tokio runtime. This function
 /// will panic if it is called inside of a tokio runtime.
 pub fn runtime<F: Future>(f: F) -> F::Output {
-    runtime::Builder::new_current_thread().build().unwrap().block_on(f)
+    runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(f)
 }
