@@ -329,7 +329,8 @@ where T: Send + Clone + 'static,
       A: TryInto<Endpoint> + Send + 'static + Clone,
       A::Error: Into<StdError>
 {
-    thread_pool.spawn(move || {
+//    thread_pool.spawn(move || {
+    std::thread::spawn(move || {
         runtime(async move {
             //tokio::spawn(async move {
                 loop {
