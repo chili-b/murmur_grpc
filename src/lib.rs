@@ -36,7 +36,7 @@ use std::sync::mpsc as std_mpsc;
 type ServerDisconnectSender = std_mpsc::Sender<()>;
 type ServerDisconnectReceiver = std_mpsc::Receiver<()>;
 
-use rayon::{ThreadPoolBuilder, ThreadPool};
+pub use rayon::{ThreadPoolBuilder, ThreadPool};
 
 use std::convert::TryInto;
 use std::sync::Arc;
