@@ -30,14 +30,14 @@ use tonic::transport::Endpoint;
 use tonic::codegen::StdError;
 
 use tokio::sync::{Mutex, MutexGuard, mpsc::{self, Sender, Receiver}};
-use tokio::runtime::{self, Runtime};
+pub use tokio::runtime::Runtime;
 //use tokio::task::block_in_place;
 
 use std::sync::mpsc as std_mpsc;
 type ServerDisconnectSender = std_mpsc::Sender<()>;
 type ServerDisconnectReceiver = std_mpsc::Receiver<()>;
 
-pub use rayon::{ThreadPoolBuilder, ThreadPool};
+//pub use rayon::{ThreadPoolBuilder, ThreadPool};
 
 use std::convert::TryInto;
 use std::sync::Arc;
@@ -314,7 +314,7 @@ where A: TryInto<Endpoint> + Send + 'static + Clone,
       A::Error: Into<StdError>,
       T: Send + Clone + 'static,
 {
-    let thread_pool = ThreadPoolBuilder::new().num_threads(num_threads).build().unwrap();
+    let rt = Runtime::new().unwrap();
     let mut result_vec = vec![];
     for i in interfaces.into_iter() {
         let (s, r) = std_mpsc::channel();
@@ -322,37 +322,29 @@ where A: TryInto<Endpoint> + Send + 'static + Clone,
         // its streams will panic if we do.
         let c = runtime(V1Client::connect(i.addr.clone())).unwrap();
         result_vec.push((c, i.t.clone(), r));
-        add_connection_to_thread_pool(&thread_pool, i, Some(s));
+        add_connection_to_thread_pool(&rt, i, Some(s));
     }
     result_vec
 }
 
-pub fn add_connection_to_thread_pool<A, T>(thread_pool: &ThreadPool, i: MurmurInterface<A, T>, s: Option<ServerDisconnectSender>)
+pub fn add_connection_to_thread_pool<A, T>(rt: &Runtime, i: MurmurInterface<A, T>, s: Option<ServerDisconnectSender>)
 where T: Send + Clone + 'static,
       A: TryInto<Endpoint> + Send + 'static + Clone,
       A::Error: Into<StdError>
 {
-    thread_pool.spawn(move || {
-        //let rt = runtime::Builder::new_current_thread().enable_all().build().unwrap();
-        let rt = Runtime::new().unwrap();
-        //let _guard = rt.enter();
-        rt.block_on(async move {
-            tokio::spawn(async move {
-                loop {
-                    let i_clone = i.clone();
-                    start_single(i_clone).await;
-                    // send indication that the server connection has closed.
-                    if let Some(s) = &s {
-                        s.send(())
-                            .expect("Sending indication that connection to server has closed");
-                    }
-                    // Don't iterate more than once if this interface is not configure to
-                    // auto-reconnect.
-                    if !i.auto_reconnect {break;}
-                    thread::sleep(time::Duration::from_secs(RECONNECT_DELAY_SECONDS));
-                }
-            }).await.unwrap();
-        });
+    rt.block_on(async move {
+        loop {
+            let i_clone = i.clone();
+            start_single(i_clone).await;
+            // send indication that the server connection has closed.
+            if let Some(s) = &s {
+                s.send(())
+                    .expect("Sending indication that connection to server has closed");
+            }
+            // Don't iterate more than once if this interface is not configure to
+            // auto-reconnect.
+            if !i.auto_reconnect {break;}
+        }
     });
 }
 
@@ -515,5 +507,5 @@ where T: Send + Clone
 pub fn runtime<F: 'static + Future + std::marker::Send>(f: F) -> F::Output 
 where F::Output: std::marker::Send 
 {
-    runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(f)
+    Runtime::new().unwrap().block_on(f)
 }
