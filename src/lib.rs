@@ -447,8 +447,7 @@ where T: Send + Clone + 'static,
     // AUTHENTICATOR
     let authenticator_fut = {
         let mut c = c.clone();
-        let t = t.clone();lling execute here results in a panic
-// current_thread::spawn(
+        let t = t.clone();
         let (mut s, r): (Sender<Response>, Receiver<Response>) = mpsc::channel(CHANNEL_BUFFER_SIZE);
         tokio::task::spawn(async move {
             if !authenticators.is_empty() {
@@ -470,8 +469,7 @@ where T: Send + Clone + 'static,
     // CONTEXT MENU ACTIONS
     let context_action_fut = {
         let c = c.clone();
-        let t = t.clone();lling execute here results in a panic
-// current_thread::spawn(
+        let t = t.clone();
         join_all(context_actions.into_iter().map(|(action, handlers)| {
             let mut c = c.clone();
             let t = t.clone();
