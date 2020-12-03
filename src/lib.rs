@@ -31,7 +31,7 @@ use tonic::codegen::StdError;
 
 use tokio::sync::{Mutex, MutexGuard, mpsc::{self, Sender, Receiver}};
 use tokio::runtime::Runtime;
-use tokio::task::block_in_place;
+//use tokio::task::block_in_place;
 
 use std::sync::mpsc as std_mpsc;
 type ServerDisconnectSender = std_mpsc::Sender<()>;
@@ -105,7 +105,7 @@ impl<T> DataMutex<T>
     /// Lock the Mutex synchronously while inside a tokio runtime. Calling this method while
     /// outside of a tokio runtime will cause a panic.
     pub fn lock(&mut self) -> MutexGuard<T> {
-        block_in_place(block_on(self.t.lock()))
+        block_on(self.t.lock())
     }
 
     /// Lock the Mutex asynchronously while inside a tokio runtime.
