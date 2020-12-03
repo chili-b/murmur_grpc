@@ -332,6 +332,7 @@ where T: Send + Clone + 'static,
       A: TryInto<Endpoint> + Send + 'static + Clone,
       A::Error: Into<StdError>
 {
+    let _guard = rt.enter();
     rt.block_on(async move {
         loop {
             let i_clone = i.clone();
