@@ -30,7 +30,7 @@ use tonic::transport::Endpoint;
 use tonic::codegen::StdError;
 
 use tokio::sync::{Mutex, MutexGuard, mpsc::{self, Sender, Receiver}};
-use tokio::runtime;
+use tokio::runtime::{self, Runtime};
 //use tokio::task::block_in_place;
 
 use std::sync::mpsc as std_mpsc;
@@ -333,7 +333,8 @@ where T: Send + Clone + 'static,
       A::Error: Into<StdError>
 {
     thread_pool.spawn(move || {
-        let rt = runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        //let rt = runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let rt = Runtime::new().unwrap();
         let _guard = rt.enter();
         rt.block_on(async move {
             tokio::spawn(async move {
