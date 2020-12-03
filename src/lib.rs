@@ -30,7 +30,7 @@ use tonic::transport::Endpoint;
 use tonic::codegen::StdError;
 
 use tokio::sync::{Mutex, MutexGuard, mpsc::{self, Sender, Receiver}};
-use tokio::runtime::Runtime;
+use tokio::runtime;
 //use tokio::task::block_in_place;
 
 use std::sync::mpsc as std_mpsc;
@@ -508,5 +508,5 @@ where T: Send + Clone
 /// Create a runtime in order to execute a single Future outside of a tokio runtime. This function
 /// will panic if it is called inside of a tokio runtime.
 pub fn runtime<F: Future>(f: F) -> F::Output {
-    Runtime::new().unwrap().block_on(f)
+    runtime::Builder::new_current_thread().build().unwrap().block_on(f)
 }
