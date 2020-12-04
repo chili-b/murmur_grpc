@@ -360,7 +360,7 @@ where T: Send + Clone + 'static,
         tokio::task::spawn(async move {
             if !user_connected.is_empty() || !user_disconnected.is_empty() || !user_state_changed.is_empty() 
                 || !user_text_message.is_empty() || !channel_created.is_empty() || !channel_removed.is_empty() 
-                    || !channel_state_changed.is_empty() 
+                    || !channel_state_changed.is_empty()
             {
                 let mut event_stream = c.server_events(server).await
                     .expect("Connecting to the event stream")
@@ -398,7 +398,7 @@ where T: Send + Clone + 'static,
                             break;
                         }
                     }
-                    s.send(filter).await.unwrap();
+                    while s.try_send(filter.clone()).is_err() {}
                 }
             }
         })
