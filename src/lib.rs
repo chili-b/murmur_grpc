@@ -397,7 +397,6 @@ where T: Send + Clone + 'static,
                     .expect("Connecting to filter stream")
                     .into_inner();
                 while let Ok(Some(mut filter)) = filter_stream.message().await {
-                    println!("got filter");
                     /*
                     for chat_filter in chat_filters.iter() {
                         if !(chat_filter)(t.clone(), c.clone(), &mut filter).await {
@@ -405,11 +404,10 @@ where T: Send + Clone + 'static,
                         }
                     }
                     */
-                    println!("sending filter");
                     s.send(filter.clone()).await
                         .expect("Sending filter to stream");
-                    println!("sent filter");
                 }
+                println!("exit");
             }
         })
     };
