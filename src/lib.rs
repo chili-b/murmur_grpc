@@ -387,11 +387,11 @@ where T: Send + Clone + 'static,
         let mut c = c.clone();
         let t = t.clone();
 
-        let (mut s, mut r) = mpsc::channel(CHANNEL_BUFFER_SIZE);
+        let (mut s, r) = mpsc::channel(CHANNEL_BUFFER_SIZE);
         s.send(Filter {server: Some(server.clone()), action: None, message: None}).await
             .expect("Sending initial message over filter stream to activate it");
 
-        tokio::task::spawn_local(async move {
+        Box::pin(async move {
             if !chat_filters.is_empty() {
                 let mut filter_stream = c.text_message_filter(r).await
                     .expect("Connecting to filter stream")
@@ -410,7 +410,6 @@ where T: Send + Clone + 'static,
                         .expect("Sending filter to stream");
                     println!("sent filter");
                 }
-                drop(filter_stream)
             }
         })
     };
@@ -418,7 +417,7 @@ where T: Send + Clone + 'static,
     let authenticator_fut = {
         let mut c = c.clone();
         let t = t.clone();
-        let (mut s, r): (Sender<Response>, Receiver<Response>) = mpsc::channel(CHANNEL_BUFFER_SIZE);
+        let (mut s, r) = mpsc::channel(CHANNEL_BUFFER_SIZE);
         future_from_async(async move {
             if !authenticators.is_empty() {
                 let mut authenticator_stream = c.authenticator_stream(r).await
