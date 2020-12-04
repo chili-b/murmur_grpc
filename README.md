@@ -27,6 +27,7 @@ fn main() {
     let i = MurmurInterfaceBuilder::new((), "http://127.0.0.1:50051")
         .user_text_message(vec![text_message])
         .build();
+    // Connection runs in child thread
     murmur_grpc::start_connection(i)
         .join()
         .expect("Waiting for connection to Mumble server to close.");
