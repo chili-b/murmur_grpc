@@ -399,6 +399,7 @@ where T: Send + Clone + 'static,
                             break;
                         }
                     }
+                    println!("{:?}", filter.clone().action);
                     while s.send(filter.clone()).is_err() {}
                 }
             }
