@@ -398,8 +398,9 @@ where T: Send + Clone + 'static,
                             break;
                         }
                     }
-                    while s.try_send(filter.clone()).is_err() {}
+                    s.send(filter).await;
                 }
+                println!("filter stream closed");
             }
         })
     };
