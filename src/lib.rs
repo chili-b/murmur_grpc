@@ -357,7 +357,7 @@ where T: Send + Clone + 'static,
         let mut c = c.clone();
         let t = t.clone();
         let server = server.clone();
-        tokio::task::spawn(async move {
+        future_from_async(async move {
             if !user_connected.is_empty() || !user_disconnected.is_empty() || !user_state_changed.is_empty() 
                 || !user_text_message.is_empty() || !channel_created.is_empty() || !channel_removed.is_empty() 
                     || !channel_state_changed.is_empty()
@@ -378,6 +378,7 @@ where T: Send + Clone + 'static,
                     }.await;
                 }
             }
+            true
         })
     };
     // CHAT FILTER
@@ -387,7 +388,7 @@ where T: Send + Clone + 'static,
         let (mut s, r) = mpsc::unbounded_channel();
         s.send(Filter {server: Some(server.clone()), action: None, message: None})
             .expect("Sending initial message over filter stream to activate it");
-        tokio::task::spawn(async move {
+        future_from_async(async move {
             if !chat_filters.is_empty() {
                 let mut filter_stream = c.text_message_filter(r).await
                     .expect("Connecting to filter stream")
@@ -401,6 +402,7 @@ where T: Send + Clone + 'static,
                     while s.send(filter.clone()).is_err() {}
                 }
             }
+            true
         })
     };
     // AUTHENTICATOR
@@ -408,7 +410,7 @@ where T: Send + Clone + 'static,
         let mut c = c.clone();
         let t = t.clone();
         let (mut s, r): (Sender<Response>, Receiver<Response>) = mpsc::channel(CHANNEL_BUFFER_SIZE);
-        tokio::task::spawn(async move {
+        future_from_async(async move {
             if !authenticators.is_empty() {
                 let mut authenticator_stream = c.authenticator_stream(r).await
                     .expect("Connecting to authenticator stream")
@@ -423,6 +425,7 @@ where T: Send + Clone + 'static,
                     s.send(response).await.unwrap();
                 }
             }
+            true
         })
     };
     // CONTEXT MENU ACTIONS
@@ -432,7 +435,7 @@ where T: Send + Clone + 'static,
         join_all(context_actions.into_iter().map(|(action, handlers)| {
             let mut c = c.clone();
             let t = t.clone();
-            tokio::task::spawn(async move {
+            future_from_async(async move {
                 if !handlers.is_empty() {
                     let mut context_action_stream = c.context_action_events(action).await
                         .expect("Connecting to context action stream")
@@ -445,6 +448,7 @@ where T: Send + Clone + 'static,
                         }
                     }
                 }
+                true
             })
         }))
     };
