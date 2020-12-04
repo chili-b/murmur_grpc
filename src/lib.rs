@@ -39,6 +39,8 @@ use std::{thread::{self, JoinHandle}, time};
 
 // https://www.reddit.com/r/rust/comments/f7qrya/defining_an_async_function_type/
 
+/// A future with bool as its output type. Can by produced by either
+/// [future_from_bool](fn.future_from_bool.html) or [future_from_async](fn.future_from_async.html)
 pub type FutureBool = Pin<Box<dyn Future<Output = bool> + Send>>;
 
 /// Turn a bool into a boxed future.
