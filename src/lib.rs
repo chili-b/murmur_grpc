@@ -384,8 +384,8 @@ where T: Send + Clone + 'static,
     let chat_filter_fut = {
         let mut c = c.clone();
         let t = t.clone();
-        let (mut s, r): (Sender<Filter>, Receiver<Filter>) = mpsc::channel(CHANNEL_BUFFER_SIZE);
-        s.send(Filter {server: Some(server.clone()), action: None, message: None}).await
+        let (mut s, r) = mpsc::unbounded_channel();
+        s.send(Filter {server: Some(server.clone()), action: None, message: None})
             .expect("Sending initial message over filter stream to activate it");
         tokio::task::spawn(async move {
             if !chat_filters.is_empty() {
@@ -398,9 +398,8 @@ where T: Send + Clone + 'static,
                             break;
                         }
                     }
-                    s.send(filter).await;
+                    while s.send(filter.clone()).is_err() {}
                 }
-                println!("filter stream closed");
             }
         })
     };
