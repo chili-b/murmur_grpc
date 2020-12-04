@@ -30,6 +30,7 @@ use tonic::codegen::StdError;
 
 use tokio::sync::{Mutex, MutexGuard, mpsc::{self, Sender, Receiver}};
 use tokio::runtime::Builder;
+use tokio::stream::Stream;
 
 use std::convert::TryInto;
 use std::sync::Arc;
@@ -385,25 +386,32 @@ where T: Send + Clone + 'static,
     let chat_filter_fut = {
         let mut c = c.clone();
         let t = t.clone();
-        let (mut s, r) = mpsc::unbounded_channel();
-        s.send(Filter {server: Some(server.clone()), action: None, message: None})
+
+        let (mut s, mut r) = mpsc::channel(CHANNEL_BUFFER_SIZE);
+        s.send(Filter {server: Some(server.clone()), action: None, message: None}).await
             .expect("Sending initial message over filter stream to activate it");
-        future_from_async(async move {
+
+        tokio::task::spawn_local(async move {
             if !chat_filters.is_empty() {
                 let mut filter_stream = c.text_message_filter(r).await
                     .expect("Connecting to filter stream")
                     .into_inner();
                 while let Ok(Some(mut filter)) = filter_stream.message().await {
+                    println!("got filter");
+                    /*
                     for chat_filter in chat_filters.iter() {
                         if !(chat_filter)(t.clone(), c.clone(), &mut filter).await {
                             break;
                         }
                     }
-                    println!("{:?}", filter.clone().action);
-                    while s.send(filter.clone()).is_err() {}
+                    */
+                    println!("sending filter");
+                    s.send(filter.clone()).await
+                        .expect("Sending filter to stream");
+                    println!("sent filter");
                 }
+                drop(filter_stream)
             }
-            true
         })
     };
     // AUTHENTICATOR

@@ -1,6 +1,6 @@
 [package]
 name = "murmur_grpc"
-version = "0.4.7"
+version = "0.4.8"
 authors = ["chili-b"]
 edition = "2018"
 description = "Wrapper over Murmur's gRPC interface"
@@ -17,7 +17,7 @@ crate-type = ["lib"]
 [dependencies]
 tonic = "0.3.1"
 prost = "0.6"
-tokio = { version = "0.2.23", features = ["macros"] }
+tokio = { version = "0.2.23", features = ["macros", "rt-util"] }
 futures = "0.3"
 
 [build-dependencies]
