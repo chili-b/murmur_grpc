@@ -2,9 +2,9 @@
 <a href="https://docs.rs/murmur_grpc"><img src="https://docs.rs/murmur_grpc/badge.svg" alt="Docs.rs badge"></a>
 <a href="https://crates.io/crates/murmur_grpc"><img src="https://img.shields.io/crates/v/murmur_grpc" alt="Crates.io badge"></a>
 
-This library was primarily created for my own purposes in order to take the pain out of interacting with Murmur's gRPC inteface. 
-All of the functionality is available, but no extensive testing has been done at this point so your mileage may vary. The documentation
-is very sparse at the moment because I am very stupid, but I intend to improve it as the library matures.
+I made this library primarily for myself in order to simplify working with gRPC. All of the functionality is available, 
+but no extensive testing has been done at this point so your mileage may vary. I really don't reccommend using this in
+anything serious at this point in time.
 
 ### Example Usage
 
@@ -27,8 +27,8 @@ fn main() {
     let i = MurmurInterfaceBuilder::new((), "http://127.0.0.1:50051")
         .user_text_message(vec![text_message])
         .build();
-    server_disconnect_receiver = murmur_grpc::start(1, vec![i])[0].2;
-    // keep the main thread alive until the server connection closes
-    server_disconnect_receiver.recv();
+    murmur_grpc::start_connection(i)
+        .join()
+        .expect("Waiting for connection to Mumble server to close.");
 }
 ```
