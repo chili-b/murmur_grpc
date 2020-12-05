@@ -56,9 +56,12 @@ pub fn future_from_async<F: Future<Output = bool> + Send + 'static>(f: F) -> Fut
 
 async fn message_and_state<T>(stream: &mut Streaming<T>) -> (Option<T>, bool) {
     match stream.message().await {
-        Ok(message) => (message, true),
+        Ok(message) => {
+            println!("message success")
+            (message, true)
+        },
         Err(status) => {
-            eprintln!("{:?}", status);
+            eprintln!("message error: {:?}", status);
             (None, false)
         }
     }
