@@ -27,6 +27,7 @@ use futures::Future;
 
 use tonic::transport::Endpoint;
 use tonic::codegen::StdError;
+use tonic::Streaming;
 
 use tokio::sync::{Mutex, MutexGuard, mpsc};
 use tokio::runtime::Builder;
@@ -51,6 +52,16 @@ pub fn future_from_bool(b: bool) -> FutureBool {
 /// Turn an async block that return a bool into a boxed future.
 pub fn future_from_async<F: Future<Output = bool> + Send + 'static>(f: F) -> FutureBool {
     Box::pin(f)
+}
+
+async fn message_and_state<T>(stream: &mut Streaming<T>) -> (Option<T>, bool) {
+    match stream.message().await {
+        Ok(message) => (message, true),
+        Err(status) => {
+            eprintln!("{:?}", status);
+            (None, false)
+        }
+    }
 }
 
 /// Function that handles Mumble server events. Returns a boolean which determines whether or not
@@ -401,7 +412,8 @@ where T: Send + Clone + 'static,
                     .expect("Connecting to filter stream")
                     .into_inner();
                 loop {
-                    if let Ok(Some(mut filter)) = filter_stream.message().await {
+                    let (message, is_connected) = message_and_state(&mut filter_stream).await;
+                    if let Some(mut filter) = message {
                         for chat_filter in chat_filters.iter() {
                             if !(chat_filter)(t.clone(), c.clone(), &mut filter).await { break; }
                         }
