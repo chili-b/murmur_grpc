@@ -422,6 +422,8 @@ where T: Send + Clone + 'static,
                         }
                         s.send(filter.clone()).await
                             .expect("Sending filter to stream");
+                    } else {
+                        println!("empty message");
                     }
                 }
             }
