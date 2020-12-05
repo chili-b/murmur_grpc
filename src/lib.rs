@@ -57,11 +57,9 @@ pub fn future_from_async<F: Future<Output = bool> + Send + 'static>(f: F) -> Fut
 async fn message_and_state<T>(stream: &mut Streaming<T>) -> (Option<T>, bool) {
     match stream.message().await {
         Ok(message) => {
-            println!("message success");
             (message, true)
         },
         Err(status) => {
-            eprintln!("message error: {:?}", status);
             (None, false)
         }
     }
@@ -420,10 +418,8 @@ where T: Send + Clone + 'static,
                         for chat_filter in chat_filters.iter() {
                             if !(chat_filter)(t.clone(), c.clone(), &mut filter).await { break; }
                         }
-                        s.send(filter.clone()).await
+                        s.send(filter).await
                             .expect("Sending filter to stream");
-                    } else {
-                        println!("empty message");
                     }
                 }
             }
