@@ -437,7 +437,8 @@ where T: Send + Clone + 'static,
                     .expect("Connecting to authenticator stream")
                     .into_inner();
                 loop {
-                    if let Ok(Some(request)) = authenticator_stream.message().await {
+                    let (message, is_connected) = message_and_state(&mut authenticator_stream).await;
+                    if let Some(request) = message {
                         let mut response = Response::default();
                         for authenticator in authenticators.iter() {
                             if !(authenticator)(t.clone(), c.clone(), &mut response, &request).await { break; }
@@ -462,7 +463,8 @@ where T: Send + Clone + 'static,
                         .expect("Connecting to context action stream")
                         .into_inner();
                     loop {
-                        if let Ok(Some(context_action)) = context_action_stream.message().await {
+                        let (message, is_connected) = message_and_state(&mut context_action_handler).await;
+                        if let Some(context_action) = message {
                             for handler in handlers.iter() {
                                 if !(handler)(t.clone(), c.clone(), &context_action).await {
                                     break;
