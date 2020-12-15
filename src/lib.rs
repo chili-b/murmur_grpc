@@ -174,7 +174,7 @@ impl ClientManager {
             let env = Environment::new(GRPC_COMPLETION_QUEUE_SIZE);
             let builder = ChannelBuilder::new(Arc::new(env));
             let channel = builder.connect(i.addr.as_ref());
-            println!("connected");
+            println!("Connected");
             let c = V1Client::new(channel);
             self.clients.insert(addr, c.clone());
             c
@@ -191,6 +191,7 @@ where T: Send + Clone + 'static,
         loop {
             let i_clone = i.clone();
             start_single(i_clone, c.clone());
+            println!("Connection closed");
             if !i.auto_reconnect { break; }
             thread::sleep(time::Duration::from_secs(RECONNECT_DELAY_SECONDS));
         }
@@ -240,6 +241,7 @@ where T: Send + Clone + 'static,
                 let mut event_stream = c.server_events(&server)
                     .expect("Connecting to the event stream");
                 loop {
+                    println!("waiting for events");
                     if let Some(Ok(event)) = event_stream.next().await {
                         match event.get_field_type() {
                             Server_Event_Type::UserConnected       => handle_event(t.clone(), c.clone(), &user_connected, &event),
