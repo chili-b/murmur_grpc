@@ -14,15 +14,15 @@ use std::pin::Pin;
 use grpcio::{ChannelBuilder, Environment, WriteFlags, CallOption};
 pub use protobuf::*;
 
-pub type FutureBool = Pin<Box<(Future<Output = bool> + 'static)>>;
+pub type FutureBool = Pin<Box<(dyn Future<Output = bool> + 'static)>>;
 
-pub type Handler<T> = fn(t: Arc<Mutex<T>>, c: V1Client, event: &Server_Event) -> Pin<Box<dyn Future<Output = bool>>>;
+pub type Handler<T> = fn(t: Arc<Mutex<T>>, c: V1Client, event: &Server_Event) -> FutureBool;
 
-pub type ChatFilter<T> = fn(t: Arc<Mutex<T>>, c: V1Client, filter: &mut TextMessage_Filter) -> Pin<Box<dyn Future<Output = bool>>>;
+pub type ChatFilter<T> = fn(t: Arc<Mutex<T>>, c: V1Client, filter: &mut TextMessage_Filter) -> FutureBool;
 
-pub type Authenticator<T> = fn(t: Arc<Mutex<T>>, c: V1Client, response: &mut Authenticator_Response, request: &Authenticator_Request) -> Pin<Box<dyn Future<Output = bool>>>;
+pub type Authenticator<T> = fn(t: Arc<Mutex<T>>, c: V1Client, response: &mut Authenticator_Response, request: &Authenticator_Request) -> FutureBool;
 
-pub type ContextActionHandler<T> = fn(t: Arc<Mutex<T>>, c: V1Client, action: &ContextAction) -> Pin<Box<dyn Future<Output = bool>>>;
+pub type ContextActionHandler<T> = fn(t: Arc<Mutex<T>>, c: V1Client, action: &ContextAction) -> FutureBool;
 
 pub type ConnectHandler<T> = fn(t: Arc<Mutex<T>>, c: V1Client) -> bool;
 
@@ -312,7 +312,6 @@ where T: Send + Clone + 'static,
             }
         }
     };
-std::pin::Pin<std::boxed::Box<(dyn std::future::Future<Output = bool> + 'static)>>
 
     // CONTEXT MENU ACTIONS
     let context_action_fut = {
