@@ -1,6 +1,6 @@
 [package]
 name = "murmur_grpc"
-version = "0.5.5"
+version = "0.8.0"
 authors = ["chili-b"]
 edition = "2018"
 description = "Wrapper over Murmur's gRPC interface"
@@ -15,10 +15,9 @@ crate-type = ["lib"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-tonic = "0.3.1"
-prost = "0.6.1"
-tokio = { version = "0.2.23", features = ["macros", "rt-util"] }
+grpcio = "0.7.0"
+protobuf = "^2.0"
 futures = "0.3.0"
 
 [build-dependencies]
-tonic-build = "0.3.1"
+protoc-grpcio = "3.0.0"

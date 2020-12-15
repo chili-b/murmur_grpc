@@ -1,142 +1,60 @@
 // The delay in seconds before trying to reconnect after server connection closes
 const RECONNECT_DELAY_SECONDS: u64 = 5;
 
-const CHANNEL_BUFFER_SIZE: usize = 300;
+const GRPC_COMPLETION_QUEUE_SIZE: usize = 1;
 
-mod murmur_rpc {
-    tonic::include_proto!("murmur_rpc");
-}
+mod protos;
 
-use murmur_rpc::v1_client::V1Client;
+pub use protos::MurmurRPC::*;
+
+use futures::{StreamExt, SinkExt, join, executor::block_on, future::join_all};
+
 /// Client is a more specific definiton for [V1Client](murmur_rpc/v1_client/struct.V1Client.html)
 /// which owns the methods that communicate with the Mumble server.
-pub type Client = V1Client<tonic::transport::Channel>;
+pub use protos::MurmurRPC_grpc::V1Client;
 
-/// Gererated from the Murmur Protocol Buffer file
-pub use murmur_rpc::*;
-
-use text_message::Filter;
-use authenticator::{Request, Response};
-use server::event::Type;
-use server::Event;
-
-use futures::join;
-use futures::future::join_all;
-use futures::executor::block_on;
-use futures::Future;
-
-use tonic::transport::Endpoint;
-use tonic::codegen::StdError;
-use tonic::Streaming;
-
-use tokio::sync::{Mutex, MutexGuard, mpsc};
-use tokio::runtime::Builder;
-
-use std::convert::TryInto;
-use std::sync::Arc;
-use std::marker::Send;
-use std::pin::Pin;
 use std::{thread::{self, JoinHandle}, time};
+use std::sync::{Arc, Mutex};
 
-// https://www.reddit.com/r/rust/comments/f7qrya/defining_an_async_function_type/
-
-/// A future with bool as its output type. Can by produced by either
-/// [future_from_bool](fn.future_from_bool.html) or [future_from_async](fn.future_from_async.html)
-pub type FutureBool = Pin<Box<dyn Future<Output = bool> + Send>>;
-
-/// Turn a bool into a boxed future.
-pub fn future_from_bool(b: bool) -> FutureBool {
-    Box::pin(futures::future::ready(b))
-}
-
-/// Turn an async block that return a bool into a boxed future.
-pub fn future_from_async<F: Future<Output = bool> + Send + 'static>(f: F) -> FutureBool {
-    Box::pin(f)
-}
-
-async fn message_and_state<T>(stream: &mut Streaming<T>) -> (Option<T>, bool) {
-    match stream.message().await {
-        Ok(message) => {
-            (message, true)
-        },
-        Err(status) => {
-            (None, false)
-        }
-    }
-}
+use grpcio::{ChannelBuilder, Environment, WriteFlags};
+use protobuf::SingularPtrField;
 
 /// Function that handles Mumble server events. Returns a boolean which determines whether or not
 /// other functions will be allowed to process the event it has handled (similar to cases falling
 /// through in a switch statement from other languages).
-pub type Handler<T> = fn(t: DataMutex<T>, c: Client, e: &Event) -> FutureBool;
+pub type Handler<T> = fn(t: Arc<Mutex<T>>, c: V1Client, e: &Server_Event) -> bool;
 
 /// Funtion that filters the text chat and determines whether to Block/Reject/Drop messages.
 /// Returns a boolean which determines whether or not other functions will be able to process the
 /// message it has filtered (similar to cases falling through in a switch statement from other languages). 
 /// The function's body should mutate `filter`.
-pub type ChatFilter<T> = fn(t: DataMutex<T>, c: Client, filter: &mut Filter) -> FutureBool;
+pub type ChatFilter<T> = fn(t: Arc<Mutex<T>>, c: V1Client, filter: &mut TextMessage_Filter) -> bool;
 
 /// Function that handles events on the Mumble server authentication stream. Returns a boolean
 /// which determines whether or not other functions will be able to process the authentication event
 /// it has handled (similar to cases falling through in a switch statement from other languages).
-pub type Authenticator<T> = fn(t: DataMutex<T>, c: Client, response: &mut Response, request: &Request) -> FutureBool;
+pub type Authenticator<T> = fn(t: Arc<Mutex<T>>, c: V1Client, response: &mut Authenticator_Response, request: &Authenticator_Request) -> bool;
 
 /// Function that handles events on the Mumble server context action stream. Returns a boolean
 /// which determines whether or not other functions will be able to process the authentication
 /// event it has handled (similar to cases falling through in a switch statement from other languages).
-pub type ContextActionHandler<T> = fn(t: DataMutex<T>, c: Client, action: &ContextAction) -> FutureBool;
+pub type ContextActionHandler<T> = fn(t: Arc<Mutex<T>>, c: V1Client, action: &ContextAction) -> bool;
 
 /// Functicon that gets called in response to the connection to Murmur either opening.
-pub type ConnectHandler<T> = fn(t: DataMutex<T>, c: Client) -> FutureBool;
+pub type ConnectHandler<T> = fn(t: Arc<Mutex<T>>, c: V1Client) -> bool;
 
 /// Function that gets called in response to the connection to Murmur closing.
-pub type DisconnectHandler<T> = fn(t: DataMutex<T>) -> FutureBool;
+pub type DisconnectHandler<T> = fn(t: Arc<Mutex<T>>) -> bool;
 
-/// This struct is a wrapper over an asynchronous [Mutex](../tokio/sync/struct.Mutex.html) that
-/// allows the contained value to be accessed inside or outside a tokio runtime asynchronously or
-/// not.
-#[derive(Clone)]
-pub struct DataMutex<T> 
-{
-    t: Arc<Mutex<T>>
-}
-
-impl<T> DataMutex<T> 
-{
-    pub fn new(t: T) -> Self {
-        Self {
-            t: Arc::new(Mutex::new(t))
-        }
-    }
-
-    /// Lock the Mutex synchronously while inside a tokio runtime. Calling this method while
-    /// outside of a tokio runtime will cause a panic.
-    pub fn lock(&mut self) -> MutexGuard<T> {
-        block_on(self.t.lock())
-    }
-
-    /// Lock the Mutex asynchronously while inside a tokio runtime.
-    pub async fn lock_async(&mut self) -> MutexGuard<'_, T> {
-        self.t.lock().await
-    }
-
-    /// Lock the Mutex synchronously while outside a tokio runtime. Calling this method inside a
-    /// tokio runtime will cause a panic.
-    pub fn lock_outside_runtime(&mut self) -> MutexGuard<T> {
-        runtime(self.t.lock())
-    }
-}
 
 #[derive(Clone)]
-pub struct MurmurInterface<A, T> 
-where A: TryInto<Endpoint> + Send + Clone,
-      A::Error: Into<StdError>,
-      T: Send + Clone,
+pub struct MurmurInterface<T> 
+where T: Send + Clone,
 {
     /// Mutex that holds data in order to allow a persistent state shared.
-    pub t: DataMutex<T>,
+    pub t: Arc<Mutex<T>>,
     /// The address to connect to.
-    pub addr: A,
+    pub addr: String,
     /// The virtual server id to connect to.
     pub server_id: u32,
     /// Whether or not to automatically try to reconnect when the server connection closes
@@ -167,14 +85,12 @@ where A: TryInto<Endpoint> + Send + Clone,
     pub server_disconnected: Vec<DisconnectHandler<T>>
 }
 
-impl<A, T> MurmurInterface<A, T> 
-where A: TryInto<Endpoint> + Send + Clone,
-      A::Error: Into<StdError>,
-      T: Send + Clone,
+impl<T> MurmurInterface<T> 
+where T: Send + Clone,
 {
-    pub fn new(t: T, addr: A) -> Self {
+    pub fn new(t: T, addr: String) -> Self {
         Self {
-            t: DataMutex::new(t),
+            t: Arc::new(Mutex::new(t)),
             addr: addr,
             server_id: 1,
             auto_reconnect: false,
@@ -194,39 +110,35 @@ where A: TryInto<Endpoint> + Send + Clone,
     }
 }
 
-pub struct MurmurInterfaceBuilder<A, T>
-where A: TryInto<Endpoint> + Send + Clone,
-      A::Error: Into<StdError>,
-      T: Send + Clone,
+pub struct MurmurInterfaceBuilder<T>
+where T: Send + Clone,
 {
-    pub i: MurmurInterface<A, T>
+    pub i: MurmurInterface<T>
 }
 
-impl<A, T> MurmurInterfaceBuilder<A, T>
-where A: TryInto<Endpoint> + Send + Clone,
-      A::Error: Into<StdError>,
-      T: Send + Clone
+impl<T> MurmurInterfaceBuilder<T>
+where T: Send + Clone
 {
     /// Create a new MurmurInterfaceBuilder provided a data value and an addr to which the gRPC
     /// connection will be made
-    pub fn new(t: T, addr: A) -> Self {
+    pub fn new(t: T, addr: String) -> Self {
         Self {
             i: MurmurInterface::new(t, addr)
         }
     }
     /// Assign the the value that will be used to represent state
     pub fn data(mut self, t: T) -> Self {
-        self.i.t = DataMutex{t: Arc::new(Mutex::new(t))};
+        self.i.t = Arc::new(Mutex::new(t));
         self
     }
     /// Alternative method to provide the value for state if it is already wrapped in a
     /// [DataMutex](struct.DataMutex.html)
-    pub fn data_mutex(mut self, t: DataMutex<T>) -> Self {
+    pub fn data_mutex(mut self, t: Arc<Mutex<T>>) -> Self {
         self.i.t = t;
         self
     }
     /// Set the address to which the connection will be made
-    pub fn addr(mut self, addr: A) -> Self {
+    pub fn addr(mut self, addr: String) -> Self {
         self.i.addr = addr;
         self
     }
@@ -299,7 +211,7 @@ where A: TryInto<Endpoint> + Send + Clone,
         self
     }
     /// Return a clone of the contained MurmurInterface
-    pub fn build(&self) -> MurmurInterface<A, T> {
+    pub fn build(&self) -> MurmurInterface<T> {
         self.i.clone()
     }
 }
@@ -308,30 +220,24 @@ where A: TryInto<Endpoint> + Send + Clone,
 /// Start a connection to a Mumble server using the given [MurmurInterface](struct.MurmurInterface.html).
 /// The function's body spawns a new thread and returns its join handle. I reccommend using
 /// [MurmurInterfaceBuilder](struct.MurmurInterfaceBuilder.html) to generate MurmurInterfaces.
-pub fn start_connection<A, T>(i: MurmurInterface<A, T>) -> JoinHandle<()>
+pub fn start_connection<T>(i: MurmurInterface<T>) -> JoinHandle<()>
 where T: Send + Clone + 'static,
-      A: TryInto<Endpoint> + Send + 'static + Clone,
-      A::Error: Into<StdError>
 {
     thread::spawn(move || {
-        runtime(async move {
-            loop {
-                let i_clone = i.clone();
-                start_single(i_clone).await;
-                // Don't iterate more than once if this interface is not configure to
-                // auto-reconnect.
-                if !i.auto_reconnect { break; }
+        loop {
+            let i_clone = i.clone();
+            start_single(i_clone);
+            // Don't iterate more than once if this interface is not configure to
+            // auto-reconnect.
+            if !i.auto_reconnect { break; }
 
-                thread::sleep(time::Duration::from_secs(RECONNECT_DELAY_SECONDS));
-            }
-        });
+            thread::sleep(time::Duration::from_secs(RECONNECT_DELAY_SECONDS));
+        }
     })
 }
 
-async fn start_single<A, T>(i: MurmurInterface<A, T>)
+fn start_single<T>(i: MurmurInterface<T>)
 where T: Send + Clone + 'static,
-      A: TryInto<Endpoint> + Send + 'static + Clone,
-      A::Error: Into<StdError>
 {
     let t = i.t;
     let addr = i.addr;
@@ -348,28 +254,25 @@ where T: Send + Clone + 'static,
     let context_actions = i.context_actions;
     let server_connected = i.server_connected;
     let server_disconnected = i.server_disconnected;
-
-    let c = if let Ok(c) = V1Client::connect(addr).await {
-        c
-    } else {
-        return;
-    };
+ 
+    let env = Environment::new(GRPC_COMPLETION_QUEUE_SIZE);
+    let builder = ChannelBuilder::new(Arc::new(env));
+    let channel = builder.connect(addr.as_ref());
+    let c = V1Client::new(channel);
 
     for connect_handler in server_connected.iter() {
-        if !(connect_handler)(t.clone(), c.clone()).await {
+        if !(connect_handler)(t.clone(), c.clone()) {
             break;
         }
     }
 
-    let server = Server {
-        id: server_id,
-        running: Some(true),
-        uptime: None,
-    };
+    let mut server = Server::new();
+    server.set_id(server_id);
+    let server = server;
 
     // SERVER EVENTS
     let server_event_fut = {
-        let mut c = c.clone();
+        let c = c.clone();
         let t = t.clone();
         let server = server.clone();
         Box::pin(async move {
@@ -377,96 +280,91 @@ where T: Send + Clone + 'static,
                 || !user_text_message.is_empty() || !channel_created.is_empty() || !channel_removed.is_empty() 
                     || !channel_state_changed.is_empty()
             {
-                let mut event_stream = c.server_events(server).await
-                    .expect("Connecting to the event stream")
-                    .into_inner();
+                let mut event_stream = c.server_events(&server)
+                    .expect("Connecting to the event stream");
                 loop {
-                    if let Ok(Some(event)) = event_stream.message().await {
-                        // the generated method name 'type' conflics with a rust keyword so 'r#' is needed
-                        match event.r#type() {
-                            Type::UserConnected       => handle_event(t.clone(), c.clone(), &user_connected, &event),
-                            Type::UserDisconnected    => handle_event(t.clone(), c.clone(), &user_disconnected, &event),
-                            Type::UserStateChanged    => handle_event(t.clone(), c.clone(), &user_state_changed, &event),
-                            Type::UserTextMessage     => handle_event(t.clone(), c.clone(), &user_text_message, &event),
-                            Type::ChannelCreated      => handle_event(t.clone(), c.clone(), &channel_created, &event),
-                            Type::ChannelRemoved      => handle_event(t.clone(), c.clone(), &channel_removed, &event),
-                            Type::ChannelStateChanged => handle_event(t.clone(), c.clone(), &channel_state_changed, &event),
-                        }.await;
+                    if let Some(Ok(event)) = event_stream.next().await {
+                        match event.get_field_type() {
+                            Server_Event_Type::UserConnected       => handle_event(t.clone(), c.clone(), &user_connected, &event),
+                            Server_Event_Type::UserDisconnected    => handle_event(t.clone(), c.clone(), &user_disconnected, &event),
+                            Server_Event_Type::UserStateChanged    => handle_event(t.clone(), c.clone(), &user_state_changed, &event),
+                            Server_Event_Type::UserTextMessage     => handle_event(t.clone(), c.clone(), &user_text_message, &event),
+                            Server_Event_Type::ChannelCreated      => handle_event(t.clone(), c.clone(), &channel_created, &event),
+                            Server_Event_Type::ChannelRemoved      => handle_event(t.clone(), c.clone(), &channel_removed, &event),
+                            Server_Event_Type::ChannelStateChanged => handle_event(t.clone(), c.clone(), &channel_state_changed, &event),
+                        };
                     }
                 }
             }
         })
     };
+
 
     // CHAT FILTER
     let chat_filter_fut = {
-        let mut c = c.clone();
+        let c = c.clone();
         let t = t.clone();
-
-        let (mut s, r) = mpsc::channel(CHANNEL_BUFFER_SIZE);
-        s.send(Filter {server: Some(server.clone()), action: None, message: None}).await
-            .expect("Sending initial message over filter stream to activate it");
 
         Box::pin(async move {
             if !chat_filters.is_empty() {
-                let mut filter_stream = c.text_message_filter(r).await
-                    .expect("Connecting to filter stream")
-                    .into_inner();
+                let (mut filter_sender, mut filter_receiver) = c.text_message_filter()
+                    .expect("Connecting to filter stream");
+                let mut initial_filter = TextMessage_Filter::new();
+                initial_filter.set_server(server.clone());
+                filter_sender.send((initial_filter, WriteFlags::default())).await
+                    .expect("Sending inital filter to open filter stream");
                 loop {
-                    let (message, is_connected) = message_and_state(&mut filter_stream).await;
-                    if let Some(mut filter) = message {
+                    if let Some(Ok(mut filter)) = filter_receiver.next().await {
                         for chat_filter in chat_filters.iter() {
-                            if !(chat_filter)(t.clone(), c.clone(), &mut filter).await { break; }
+                            if !(chat_filter)(t.clone(), c.clone(), &mut filter) { break; }
                         }
-                        s.send(filter).await
-                            .expect("Sending filter to stream");
+                        while filter_sender.send((filter.clone(), WriteFlags::default())).await.is_err() {}
                     }
                 }
             }
         })
     };
 
+
     // AUTHENTICATOR
     let authenticator_fut = {
-        let mut c = c.clone();
+        let c = c.clone();
         let t = t.clone();
-        let (mut s, r) = mpsc::channel(CHANNEL_BUFFER_SIZE);
+
         Box::pin(async move {
             if !authenticators.is_empty() {
-                let mut authenticator_stream = c.authenticator_stream(r).await
-                    .expect("Connecting to authenticator stream")
-                    .into_inner();
+                let (mut auth_sender, mut auth_receiver) = c.authenticator_stream()
+                    .expect("Connecting to authenticator stream");
                 loop {
-                    let (message, is_connected) = message_and_state(&mut authenticator_stream).await;
-                    if let Some(request) = message {
-                        let mut response = Response::default();
+                    if let Some(Ok(request)) = auth_receiver.next().await {
+                        let mut response = Authenticator_Response::new();
                         for authenticator in authenticators.iter() {
-                            if !(authenticator)(t.clone(), c.clone(), &mut response, &request).await { break; }
+                            if !(authenticator)(t.clone(), c.clone(), &mut response, &request) { break; }
                         }
-                        s.send(response).await.unwrap();
+                        while auth_sender.send((response.clone(), WriteFlags::default())).await.is_err() {}
                     }
                 }
             }
         })
     };
+
 
     // CONTEXT MENU ACTIONS
     let context_action_fut = {
         let c = c.clone();
         let t = t.clone();
         join_all(context_actions.into_iter().map(|(action, handlers)| {
-            let mut c = c.clone();
+            let c = c.clone();
             let t = t.clone();
             Box::pin(async move {
+                while c.context_action_add(&action).is_err() {}
                 if !handlers.is_empty() {
-                    let mut context_action_stream = c.context_action_events(action).await
-                        .expect("Connecting to context action stream")
-                        .into_inner();
+                    let mut context_action_stream = c.context_action_events(&action)
+                        .expect("Connecting to context action stream");
                     loop {
-                        let (message, is_connected) = message_and_state(&mut context_action_handler).await;
-                        if let Some(context_action) = message {
+                        if let Some(Ok(context_action)) = context_action_stream.next().await {
                             for handler in handlers.iter() {
-                                if !(handler)(t.clone(), c.clone(), &context_action).await {
+                                if !(handler)(t.clone(), c.clone(), &context_action) {
                                     break;
                                 }
                             }
@@ -477,33 +375,30 @@ where T: Send + Clone + 'static,
         }))
     };
 
+
     // join all the tasks into a single future
-    drop(join!(server_event_fut, authenticator_fut, chat_filter_fut, context_action_fut));
+    block_on(async move {
+        join!(server_event_fut, chat_filter_fut, authenticator_fut, context_action_fut);
+    });
 
     for disconnect_handler in server_disconnected.iter() {
-        if !(disconnect_handler)(t.clone()).await {
+        if !(disconnect_handler)(t.clone()) {
             break;
         }
     }
 }
 
-async fn handle_event<T>(t: DataMutex<T>, c: Client, handlers: &Vec<Handler<T>>, event: &Event) 
+pub fn from_option<T>(option: Option<T>) -> SingularPtrField<T> {
+    SingularPtrField::from_option(option)
+}
+
+
+fn handle_event<T>(t: Arc<Mutex<T>>, c: V1Client, handlers: &Vec<Handler<T>>, event: &Server_Event) 
 where T: Send + Clone
 {
     for handler in handlers.iter() {
-        if !(handler)(t.clone(), c.clone(), event).await {
+        if !(handler)(t.clone(), c.clone(), event) {
             return;
         }
     }
-}
-
-/// Create a runtime in order to execute a single Future outside of a tokio runtime. This function
-/// will panic if it is called inside of a tokio runtime.
-pub fn runtime<F: Future>(f: F) -> F::Output {
-    Builder::new()
-        .basic_scheduler()
-        .enable_all()
-        .build()
-        .unwrap()
-        .block_on(f)
 }
