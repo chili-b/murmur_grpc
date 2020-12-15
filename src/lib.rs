@@ -239,21 +239,18 @@ where T: Send + Clone + 'static,
                 .wait_for_ready(true);
             let mut event_stream = c.server_events_opt(&server, opt)
                 .expect("Connecting to the event stream");
-            event_stream.for_each(move |event| {
+            while let Some(Ok(event)) = event_stream.next().await {
                 println!("server event {:?}", &event);
-                if let Ok(event) = event {
-                    match event.get_field_type() {
-                        Server_Event_Type::UserConnected       => handle_event(t.clone(), c.clone(), &user_connected, &event),
-                        Server_Event_Type::UserDisconnected    => handle_event(t.clone(), c.clone(), &user_disconnected, &event),
-                        Server_Event_Type::UserStateChanged    => handle_event(t.clone(), c.clone(), &user_state_changed, &event),
-                        Server_Event_Type::UserTextMessage     => handle_event(t.clone(), c.clone(), &user_text_message, &event),
-                        Server_Event_Type::ChannelCreated      => handle_event(t.clone(), c.clone(), &channel_created, &event),
-                        Server_Event_Type::ChannelRemoved      => handle_event(t.clone(), c.clone(), &channel_removed, &event),
-                        Server_Event_Type::ChannelStateChanged => handle_event(t.clone(), c.clone(), &channel_state_changed, &event),
-                    }
+                match event.get_field_type() {
+                    Server_Event_Type::UserConnected       => handle_event(t.clone(), c.clone(), &user_connected, &event),
+                    Server_Event_Type::UserDisconnected    => handle_event(t.clone(), c.clone(), &user_disconnected, &event),
+                    Server_Event_Type::UserStateChanged    => handle_event(t.clone(), c.clone(), &user_state_changed, &event),
+                    Server_Event_Type::UserTextMessage     => handle_event(t.clone(), c.clone(), &user_text_message, &event),
+                    Server_Event_Type::ChannelCreated      => handle_event(t.clone(), c.clone(), &channel_created, &event),
+                    Server_Event_Type::ChannelRemoved      => handle_event(t.clone(), c.clone(), &channel_removed, &event),
+                    Server_Event_Type::ChannelStateChanged => handle_event(t.clone(), c.clone(), &channel_state_changed, &event),
                 }
-                future::ready(())
-            }).await
+            }
         }
     };
 
