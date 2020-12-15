@@ -6,7 +6,7 @@ mod protos;
 
 pub use protos::MurmurRPC::*;
 pub use protos::MurmurRPC_grpc::V1Client;
-use futures::{StreamExt, TryStreamExt, SinkExt, join, executor::block_on, future::join_all};
+use futures::{StreamExt, TryStreamExt, SinkExt, join, executor::block_on, future::{self, join_all}};
 use std::{thread::{self, JoinHandle}, time};
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
@@ -233,7 +233,8 @@ where T: Send + Clone + 'static,
         let c = c.clone();
         let t = t.clone();
         let server = server.clone();
-        Box::pin(async move {
+
+        async move {
             if !user_connected.is_empty() || !user_disconnected.is_empty() || !user_state_changed.is_empty() 
                 || !user_text_message.is_empty() || !channel_created.is_empty() || !channel_removed.is_empty() 
                     || !channel_state_changed.is_empty()
@@ -242,22 +243,23 @@ where T: Send + Clone + 'static,
                     .wait_for_ready(true);
                 let mut event_stream = c.server_events_opt(&server, opt)
                     .expect("Connecting to the event stream");
-                loop {
-                    if let Ok(Some(event)) = event_stream.try_next().await {
-                        println!("server event");
-                        match event.get_field_type() {
-                            Server_Event_Type::UserConnected       => handle_event(t.clone(), c.clone(), &user_connected, &event),
-                            Server_Event_Type::UserDisconnected    => handle_event(t.clone(), c.clone(), &user_disconnected, &event),
-                            Server_Event_Type::UserStateChanged    => handle_event(t.clone(), c.clone(), &user_state_changed, &event),
-                            Server_Event_Type::UserTextMessage     => handle_event(t.clone(), c.clone(), &user_text_message, &event),
-                            Server_Event_Type::ChannelCreated      => handle_event(t.clone(), c.clone(), &channel_created, &event),
-                            Server_Event_Type::ChannelRemoved      => handle_event(t.clone(), c.clone(), &channel_removed, &event),
-                            Server_Event_Type::ChannelStateChanged => handle_event(t.clone(), c.clone(), &channel_state_changed, &event),
-                        };
-                    }
-                }
+                //loop {
+                //    if let Ok(Some(event)) = event_stream.try_next().await {
+                event_stream.and_then(|event| {
+                    println!("server event");
+                    future::ok(match event.get_field_type() {
+                        Server_Event_Type::UserConnected       => handle_event(t.clone(), c.clone(), &user_connected, &event),
+                        Server_Event_Type::UserDisconnected    => handle_event(t.clone(), c.clone(), &user_disconnected, &event),
+                        Server_Event_Type::UserStateChanged    => handle_event(t.clone(), c.clone(), &user_state_changed, &event),
+                        Server_Event_Type::UserTextMessage     => handle_event(t.clone(), c.clone(), &user_text_message, &event),
+                        Server_Event_Type::ChannelCreated      => handle_event(t.clone(), c.clone(), &channel_created, &event),
+                        Server_Event_Type::ChannelRemoved      => handle_event(t.clone(), c.clone(), &channel_removed, &event),
+                        Server_Event_Type::ChannelStateChanged => handle_event(t.clone(), c.clone(), &channel_state_changed, &event),
+                    })
+                });
+                //}
             }
-        })
+        }
     };
 
 
@@ -266,7 +268,7 @@ where T: Send + Clone + 'static,
         let c = c.clone();
         let t = t.clone();
 
-        Box::pin(async move {
+        async move {
             if !chat_filters.is_empty() {
                 let (mut filter_sender, mut filter_receiver) = c.text_message_filter()
                     .expect("Connecting to filter stream");
@@ -284,7 +286,7 @@ where T: Send + Clone + 'static,
                     }
                 }
             }
-        })
+        }
     };
 
 
@@ -293,7 +295,7 @@ where T: Send + Clone + 'static,
         let c = c.clone();
         let t = t.clone();
 
-        Box::pin(async move {
+        async move {
             if !authenticators.is_empty() {
                 let (mut auth_sender, mut auth_receiver) = c.authenticator_stream()
                     .expect("Connecting to authenticator stream");
@@ -307,7 +309,7 @@ where T: Send + Clone + 'static,
                     }
                 }
             }
-        })
+        }
     };
 
 
@@ -318,7 +320,7 @@ where T: Send + Clone + 'static,
         join_all(context_actions.into_iter().map(|(action, handlers)| {
             let c = c.clone();
             let t = t.clone();
-            Box::pin(async move {
+            async move {
                 while c.context_action_add(&action).is_err() {}
                 if !handlers.is_empty() {
                     let mut context_action_stream = c.context_action_events(&action)
@@ -334,7 +336,7 @@ where T: Send + Clone + 'static,
                         }
                     }
                 }
-            })
+            }
         }))
     };
 
