@@ -10,16 +10,17 @@ use futures::{StreamExt, SinkExt, join, executor::block_on, future::{join_all, F
 use std::{thread::{self, JoinHandle}, time};
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
+use std::pin::Pin;
 use grpcio::{ChannelBuilder, Environment, WriteFlags, CallOption};
 pub use protobuf::*;
 
-pub type Handler<T, F> = fn(t: Arc<Mutex<T>>, c: V1Client, e: &Server_Event) -> F;
+pub type Handler<T> = fn(t: Arc<Mutex<T>>, c: V1Client, event: &Server_Event) -> Pin<Box<dyn Future<Output = bool>>>;
 
-pub type ChatFilter<T, F> = fn(t: Arc<Mutex<T>>, c: V1Client, filter: &mut TextMessage_Filter) -> F;
+pub type ChatFilter<T> = fn(t: Arc<Mutex<T>>, c: V1Client, filter: &mut TextMessage_Filter) -> Pin<Box<dyn Future<Output = bool>>>;
 
-pub type Authenticator<T, F> = fn(t: Arc<Mutex<T>>, c: V1Client, response: &mut Authenticator_Response, request: &Authenticator_Request) -> F;
+pub type Authenticator<T> = fn(t: Arc<Mutex<T>>, c: V1Client, response: &mut Authenticator_Response, request: &Authenticator_Request) -> Pin<Box<dyn Future<Output = bool>>>;
 
-pub type ContextActionHandler<T, F> = fn(t: Arc<Mutex<T>>, c: V1Client, action: &ContextAction) -> F;
+pub type ContextActionHandler<T> = fn(t: Arc<Mutex<T>>, c: V1Client, action: &ContextAction) -> Pin<Box<dyn Future<Output = bool>>>;
 
 pub type ConnectHandler<T> = fn(t: Arc<Mutex<T>>, c: V1Client) -> bool;
 
@@ -27,31 +28,29 @@ pub type DisconnectHandler<T> = fn(t: Arc<Mutex<T>>) -> bool;
 
 
 #[derive(Clone)]
-pub struct MurmurInterface<T, F> 
+pub struct MurmurInterface<T> 
 where T: Send + Clone,
-      F: Future<Output = bool> + Clone
 {
     pub t: Arc<Mutex<T>>,
     pub addr: String,
     pub server_id: u32,
     pub auto_reconnect: bool,
-    pub user_connected: Vec<Handler<T, F>>,
-    pub user_disconnected: Vec<Handler<T, F>>,
-    pub user_state_changed: Vec<Handler<T, F>>,
-    pub user_text_message: Vec<Handler<T, F>>,
-    pub channel_created: Vec<Handler<T, F>>,
-    pub channel_removed: Vec<Handler<T, F>>,
-    pub channel_state_changed: Vec<Handler<T, F>>,
-    pub chat_filters: Vec<ChatFilter<T, F>>,
-    pub authenticators: Vec<Authenticator<T, F>>,
-    pub context_actions: Vec<(ContextAction, Vec<ContextActionHandler<T, F>>)>,
+    pub user_connected: Vec<Handler<T>>,
+    pub user_disconnected: Vec<Handler<T>>,
+    pub user_state_changed: Vec<Handler<T>>,
+    pub user_text_message: Vec<Handler<T>>,
+    pub channel_created: Vec<Handler<T>>,
+    pub channel_removed: Vec<Handler<T>>,
+    pub channel_state_changed: Vec<Handler<T>>,
+    pub chat_filters: Vec<ChatFilter<T>>,
+    pub authenticators: Vec<Authenticator<T>>,
+    pub context_actions: Vec<(ContextAction, Vec<ContextActionHandler<T>>)>,
     pub server_connected: Vec<ConnectHandler<T>>,
     pub server_disconnected: Vec<DisconnectHandler<T>>
 }
 
-impl<T, F> MurmurInterface<T, F> 
+impl<T> MurmurInterface<T> 
 where T: Send + Clone,
-      F: Future<Output = bool> + Clone
 {
     pub fn new(t: T, addr: String) -> Self {
         Self {
@@ -75,16 +74,14 @@ where T: Send + Clone,
     }
 }
 
-pub struct MurmurInterfaceBuilder<T, F>
+pub struct MurmurInterfaceBuilder<T>
 where T: Send + Clone,
-      F: Future<Output = bool> + Clone
 {
-    pub i: MurmurInterface<T, F>
+    pub i: MurmurInterface<T>
 }
 
-impl<T, F> MurmurInterfaceBuilder<T, F>
+impl<T> MurmurInterfaceBuilder<T>
 where T: Send + Clone,
-      F: Future<Output = bool> + Clone
 {
     pub fn new<S>(t: T, addr: S) -> Self 
     where S: Into<String>
@@ -107,43 +104,43 @@ where T: Send + Clone,
         self
     }
     */
-    pub fn user_connected(mut self, user_connected: Vec<Handler<T, F>>) -> Self {
+    pub fn user_connected(mut self, user_connected: Vec<Handler<T>>) -> Self {
         self.i.user_connected = user_connected;
         self
     }
-    pub fn user_disconnected(mut self, user_disconnected: Vec<Handler<T, F>>) -> Self {
+    pub fn user_disconnected(mut self, user_disconnected: Vec<Handler<T>>) -> Self {
         self.i.user_disconnected = user_disconnected;
         self
     }
-    pub fn user_state_changed(mut self, user_state_changed: Vec<Handler<T, F>>) -> Self {
+    pub fn user_state_changed(mut self, user_state_changed: Vec<Handler<T>>) -> Self {
         self.i.user_state_changed = user_state_changed;
         self
     }
-    pub fn user_text_message(mut self, user_text_message: Vec<Handler<T, F>>) -> Self {
+    pub fn user_text_message(mut self, user_text_message: Vec<Handler<T>>) -> Self {
         self.i.user_text_message = user_text_message;
         self
     }
-    pub fn channel_created(mut self, channel_created: Vec<Handler<T, F>>) -> Self {
+    pub fn channel_created(mut self, channel_created: Vec<Handler<T>>) -> Self {
         self.i.channel_created = channel_created;
         self
     }
-    pub fn channel_removed(mut self, channel_removed: Vec<Handler<T, F>>) -> Self {
+    pub fn channel_removed(mut self, channel_removed: Vec<Handler<T>>) -> Self {
         self.i.channel_removed = channel_removed;
         self
     }
-    pub fn channel_state_changed(mut self, channel_state_changed: Vec<Handler<T, F>>) -> Self {
+    pub fn channel_state_changed(mut self, channel_state_changed: Vec<Handler<T>>) -> Self {
         self.i.channel_state_changed = channel_state_changed;
         self
     }
-    pub fn chat_filters(mut self, chat_filters: Vec<ChatFilter<T, F>>) -> Self {
+    pub fn chat_filters(mut self, chat_filters: Vec<ChatFilter<T>>) -> Self {
         self.i.chat_filters = chat_filters;
         self
     }
-    pub fn authenticators(mut self, authenticators: Vec<Authenticator<T, F>>) -> Self {
+    pub fn authenticators(mut self, authenticators: Vec<Authenticator<T>>) -> Self {
         self.i.authenticators = authenticators;
         self
     }
-    pub fn context_actions(mut self, context_actions: Vec<(ContextAction, Vec<ContextActionHandler<T, F>>)>) -> Self {
+    pub fn context_actions(mut self, context_actions: Vec<(ContextAction, Vec<ContextActionHandler<T>>)>) -> Self {
         self.i.context_actions = context_actions;
         self
     }
@@ -155,7 +152,7 @@ where T: Send + Clone,
         self.i.server_disconnected = disconnection_handlers;
         self
     }
-    pub fn build(&self) -> MurmurInterface<T, F> {
+    pub fn build(&self) -> MurmurInterface<T> {
         self.i.clone()
     }
 }
@@ -173,9 +170,8 @@ impl ClientManager {
         }
     }
 
-    pub fn start_connection<T, F>(&mut self, i: MurmurInterface<T, F>) -> JoinHandle<()> 
+    pub fn start_connection<T>(&mut self, i: MurmurInterface<T>) -> JoinHandle<()> 
     where T: Send + Clone + 'static,
-          F: Future<Output = bool> + Clone + 'static
     {
         let addr = i.addr.clone();
         let c = if let Some(c) = self.clients.get(&addr) {
@@ -195,9 +191,8 @@ impl ClientManager {
 }
 
 
-fn start_connection<T, F>(i: MurmurInterface<T, F>, c: V1Client) -> JoinHandle<()>
+fn start_connection<T>(i: MurmurInterface<T>, c: V1Client) -> JoinHandle<()>
 where T: Send + Clone + 'static,
-      F: Future<Output = bool> + Clone + 'static
 {
     thread::spawn(move || {
         loop {
@@ -211,9 +206,8 @@ where T: Send + Clone + 'static,
 }
 
 
-fn start_single<T, F>(i: MurmurInterface<T, F>, c: V1Client)
+fn start_single<T>(i: MurmurInterface<T>, c: V1Client)
 where T: Send + Clone + 'static,
-      F: Future<Output = bool> + Clone
 {
     let t = i.t;
     let server_id = i.server_id;
@@ -362,6 +356,12 @@ pub fn from_option<T>(option: Option<T>) -> SingularPtrField<T> {
     SingularPtrField::from_option(option)
 }
 
+pub fn future<F, O>(f: F) -> Pin<Box<dyn Future<Output = O>>>
+where F: Future<Output = O> + 'static
+{
+    Box::pin(f)
+}
+
 
 async fn try_send<T, S>(message: T, mut sink: S) -> bool
 where T: Clone,
@@ -376,9 +376,8 @@ where T: Clone,
 }
 
 
-async fn handle_event<T, F>(t: Arc<Mutex<T>>, c: V1Client, handlers: &Vec<Handler<T, F>>, event: &Server_Event) 
+async fn handle_event<T>(t: Arc<Mutex<T>>, c: V1Client, handlers: &Vec<Handler<T>>, event: &Server_Event) 
 where T: Send + Clone,
-      F: Future<Output = bool>
 {
     for handler in handlers.iter() {
         if !(handler)(t.clone(), c.clone(), event).await {
