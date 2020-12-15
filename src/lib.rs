@@ -152,11 +152,11 @@ where T: Send + Clone
 }
 
 
-pub struct ConnectionManager {
+pub struct ClientManager {
     pub clients: HashMap<String, V1Client>
 }
 
-impl ConnectionManager {
+impl ClientManager {
     
     pub fn new() -> Self {
         Self {
