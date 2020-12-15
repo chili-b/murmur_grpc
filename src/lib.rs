@@ -14,15 +14,15 @@ use std::pin::Pin;
 use grpcio::{ChannelBuilder, Environment, WriteFlags, CallOption};
 pub use protobuf::*;
 
-pub type FutureBool = Pin<Box<(dyn Future<Output = bool>)>>;
+pub type FutureValue<O> = Pin<Box<(dyn Future<Output = O>)>>;
 
-pub type Handler<T> = fn(t: Arc<Mutex<T>>, c: V1Client, event: &Server_Event) -> FutureBool;
+pub type Handler<T> = fn(t: Arc<Mutex<T>>, c: V1Client, event: Server_Event) -> FutureValue<bool>;
 
-pub type ChatFilter<T> = fn(t: Arc<Mutex<T>>, c: V1Client, filter: &mut TextMessage_Filter) -> FutureBool;
+pub type ChatFilter<T> = fn(t: Arc<Mutex<T>>, c: V1Client, filter: TextMessage_Filter) -> FutureValue<(bool, TextMessage_Filter)>;
 
-pub type Authenticator<T> = fn(t: Arc<Mutex<T>>, c: V1Client, response: &mut Authenticator_Response, request: &Authenticator_Request) -> FutureBool;
+pub type Authenticator<T> = fn(t: Arc<Mutex<T>>, c: V1Client, response: Authenticator_Response, request: Authenticator_Request) -> FutureValue<(bool, Authenticator_Response)>;
 
-pub type ContextActionHandler<T> = fn(t: Arc<Mutex<T>>, c: V1Client, action: &ContextAction) -> FutureBool;
+pub type ContextActionHandler<T> = fn(t: Arc<Mutex<T>>, c: V1Client, action: ContextAction) -> FutureValue<bool>;
 
 pub type ConnectHandler<T> = fn(t: Arc<Mutex<T>>, c: V1Client) -> bool;
 
@@ -281,7 +281,9 @@ where T: Send + Clone + 'static,
                     if let Some(Ok(mut filter)) = filter_receiver.next().await {
                         if filter.get_server().get_id() != server_id { break; }
                         for chat_filter in chat_filters.iter() {
-                            if !(chat_filter)(t.clone(), c.clone(), &mut filter).await { break; }
+                            let (cont, new_filter) = (chat_filter)(t.clone(), c.clone(), filter).await;
+                            filter = new_filter;
+                            if !cont { break; }
                         }
                         if !try_send(filter, &mut filter_sender).await { break; }
                     }
@@ -304,7 +306,9 @@ where T: Send + Clone + 'static,
                     if let Some(Ok(request)) = auth_receiver.next().await {
                         let mut response = Authenticator_Response::new();
                         for authenticator in authenticators.iter() {
-                            if !(authenticator)(t.clone(), c.clone(), &mut response, &request).await { break; }
+                            let (cont, new_response) = (authenticator)(t.clone(), c.clone(), response, request.clone()).await;
+                            response = new_response;
+                            if !cont { break; }
                         }
                         if !try_send(response, &mut auth_sender).await { break; }
                     }
@@ -329,7 +333,7 @@ where T: Send + Clone + 'static,
                         if let Some(Ok(context_action)) = context_action_stream.next().await {
                             if context_action.get_server().get_id() != server_id { break; }
                             for handler in handlers.iter() {
-                                if !(handler)(t.clone(), c.clone(), &context_action).await {
+                                if !(handler)(t.clone(), c.clone(), context_action.clone()).await {
                                     break;
                                 }
                             }
@@ -381,7 +385,7 @@ async fn handle_event<T>(t: Arc<Mutex<T>>, c: V1Client, handlers: &Vec<Handler<T
 where T: Send + Clone,
 {
     for handler in handlers.iter() {
-        if !(handler)(t.clone(), c.clone(), event).await {
+        if !(handler)(t.clone(), c.clone(), event.to_owned()).await {
             return;
         }
     }
