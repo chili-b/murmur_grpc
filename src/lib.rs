@@ -6,7 +6,7 @@ mod protos;
 
 pub use protos::MurmurRPC::*;
 pub use protos::MurmurRPC_grpc::V1Client;
-use futures::{StreamExt, SinkExt, join, executor::block_on, future::{self, join_all}};
+use futures::{StreamExt, TryStreamExt, SinkExt, join, executor::block_on, future::join_all};
 use std::{thread::{self, JoinHandle}, time};
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
@@ -238,13 +238,11 @@ where T: Send + Clone + 'static,
                 || !user_text_message.is_empty() || !channel_created.is_empty() || !channel_removed.is_empty() 
                     || !channel_state_changed.is_empty()
             {
-                let event_stream = c.server_events(&server)
+                let mut event_stream = c.server_events(&server)
                     .expect("Connecting to the event stream");
-                //loop {
-                //if let Some(Ok(event)) = event_stream.next().await {
-                event_stream.for_each(|event| {
-                    println!("server event");
-                    if let Ok(event) = event {
+                loop {
+                    if let Ok(Some(event)) = event_stream.try_next().await {
+                        println!("server event");
                         match event.get_field_type() {
                             Server_Event_Type::UserConnected       => handle_event(t.clone(), c.clone(), &user_connected, &event),
                             Server_Event_Type::UserDisconnected    => handle_event(t.clone(), c.clone(), &user_disconnected, &event),
@@ -255,9 +253,7 @@ where T: Send + Clone + 'static,
                             Server_Event_Type::ChannelStateChanged => handle_event(t.clone(), c.clone(), &channel_state_changed, &event),
                         };
                     }
-                    future::ready(())
-                }).await
-                //}
+                }
             }
         })
     };
