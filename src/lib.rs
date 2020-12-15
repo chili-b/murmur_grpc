@@ -225,7 +225,8 @@ where T: Send + Clone + 'static,
 
     let mut server = Server::new();
     server.set_id(server_id);
-    let server = server;
+    let server = c.server_get(&server)
+        .expect("getting current server");
 
 
     // SERVER EVENTS
