@@ -174,6 +174,7 @@ impl ClientManager {
             let env = Environment::new(GRPC_COMPLETION_QUEUE_SIZE);
             let builder = ChannelBuilder::new(Arc::new(env));
             let channel = builder.connect(i.addr.as_ref());
+            println!("connected");
             let c = V1Client::new(channel);
             self.clients.insert(addr, c.clone());
             c
