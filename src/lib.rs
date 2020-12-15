@@ -10,7 +10,7 @@ use futures::{StreamExt, TryStreamExt, SinkExt, join, executor::block_on, future
 use std::{thread::{self, JoinHandle}, time};
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
-use grpcio::{ChannelBuilder, Environment, WriteFlags};
+use grpcio::{ChannelBuilder, Environment, WriteFlags, CallOption};
 pub use protobuf::*;
 
 pub type Handler<T> = fn(t: Arc<Mutex<T>>, c: V1Client, e: &Server_Event) -> bool;
@@ -238,7 +238,9 @@ where T: Send + Clone + 'static,
                 || !user_text_message.is_empty() || !channel_created.is_empty() || !channel_removed.is_empty() 
                     || !channel_state_changed.is_empty()
             {
-                let mut event_stream = c.server_events(&server)
+                let opt = CallOption::default()
+                    .wait_for_ready(true);
+                let mut event_stream = c.server_events_opt(&server, opt)
                     .expect("Connecting to the event stream");
                 loop {
                     if let Ok(Some(event)) = event_stream.try_next().await {

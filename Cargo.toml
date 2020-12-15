@@ -1,6 +1,6 @@
 [package]
 name = "murmur_grpc"
-version = "0.8.8"
+version = "0.8.9"
 authors = ["chili-b"]
 edition = "2018"
 description = "Wrapper over Murmur's gRPC interface"
