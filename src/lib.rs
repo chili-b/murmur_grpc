@@ -11,7 +11,7 @@ use std::{thread::{self, JoinHandle}, time};
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 use grpcio::{ChannelBuilder, Environment, WriteFlags};
-use protobuf::SingularPtrField;
+pub use protobuf::*;
 
 pub type Handler<T> = fn(t: Arc<Mutex<T>>, c: V1Client, e: &Server_Event) -> bool;
 pub type ChatFilter<T> = fn(t: Arc<Mutex<T>>, c: V1Client, filter: &mut TextMessage_Filter) -> bool;
