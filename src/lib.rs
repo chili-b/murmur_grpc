@@ -242,22 +242,22 @@ where T: Send + Clone + 'static,
                 let opt = CallOption::default()
                     .wait_for_ready(true);
                 let mut event_stream = c.server_events_opt(&server, opt)
-                    .expect("Connecting to the event stream");
-                //loop {
-                //    if let Ok(Some(event)) = event_stream.try_next().await {
-                event_stream.and_then(|event| {
-                    println!("server event");
-                    future::ok(match event.get_field_type() {
-                        Server_Event_Type::UserConnected       => handle_event(t.clone(), c.clone(), &user_connected, &event),
-                        Server_Event_Type::UserDisconnected    => handle_event(t.clone(), c.clone(), &user_disconnected, &event),
-                        Server_Event_Type::UserStateChanged    => handle_event(t.clone(), c.clone(), &user_state_changed, &event),
-                        Server_Event_Type::UserTextMessage     => handle_event(t.clone(), c.clone(), &user_text_message, &event),
-                        Server_Event_Type::ChannelCreated      => handle_event(t.clone(), c.clone(), &channel_created, &event),
-                        Server_Event_Type::ChannelRemoved      => handle_event(t.clone(), c.clone(), &channel_removed, &event),
-                        Server_Event_Type::ChannelStateChanged => handle_event(t.clone(), c.clone(), &channel_state_changed, &event),
-                    })
-                });
-                //}
+                    .expect("Connecting to the event stream")
+                    .fuse();
+                loop {
+                    if let Ok(event) = event_stream.select_next_some().await {
+                        println!("server event");
+                        match event.get_field_type() {
+                            Server_Event_Type::UserConnected       => handle_event(t.clone(), c.clone(), &user_connected, &event),
+                            Server_Event_Type::UserDisconnected    => handle_event(t.clone(), c.clone(), &user_disconnected, &event),
+                            Server_Event_Type::UserStateChanged    => handle_event(t.clone(), c.clone(), &user_state_changed, &event),
+                            Server_Event_Type::UserTextMessage     => handle_event(t.clone(), c.clone(), &user_text_message, &event),
+                            Server_Event_Type::ChannelCreated      => handle_event(t.clone(), c.clone(), &channel_created, &event),
+                            Server_Event_Type::ChannelRemoved      => handle_event(t.clone(), c.clone(), &channel_removed, &event),
+                            Server_Event_Type::ChannelStateChanged => handle_event(t.clone(), c.clone(), &channel_state_changed, &event),
+                        }
+                    }
+                }
             }
         }
     };
