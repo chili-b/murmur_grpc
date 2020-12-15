@@ -241,8 +241,8 @@ where T: Send + Clone + 'static,
                 let mut event_stream = c.server_events(&server)
                     .expect("Connecting to the event stream");
                 loop {
-                    println!("waiting for events");
                     if let Some(Ok(event)) = event_stream.next().await {
+                        println!("server event");
                         match event.get_field_type() {
                             Server_Event_Type::UserConnected       => handle_event(t.clone(), c.clone(), &user_connected, &event),
                             Server_Event_Type::UserDisconnected    => handle_event(t.clone(), c.clone(), &user_disconnected, &event),
