@@ -14,7 +14,7 @@ use std::pin::Pin;
 use grpcio::{ChannelBuilder, Environment, WriteFlags, CallOption};
 pub use protobuf::*;
 
-pub type FutureBool = Pin<Box<(dyn Future<Output = bool> + 'static)>>;
+pub type FutureBool = Pin<Box<(dyn Future<Output = bool>)>>;
 
 pub type Handler<T> = fn(t: Arc<Mutex<T>>, c: V1Client, event: &Server_Event) -> FutureBool;
 
