@@ -240,10 +240,8 @@ where T: Send + Clone + 'static,
             let mut event_stream = c.server_events_opt(&server, opt)
                 .expect("Connecting to the event stream");
             event_stream.for_each(move |event| {
-                //loop {
-                //    if let Ok(event) = event_stream.for_each() {
+                println!("server event {:?}", &event);
                 if let Ok(event) = event {
-                    println!("server event");
                     match event.get_field_type() {
                         Server_Event_Type::UserConnected       => handle_event(t.clone(), c.clone(), &user_connected, &event),
                         Server_Event_Type::UserDisconnected    => handle_event(t.clone(), c.clone(), &user_disconnected, &event),
