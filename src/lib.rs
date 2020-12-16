@@ -11,7 +11,7 @@ use std::{thread::{self, JoinHandle}, time};
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 use std::pin::Pin;
-use grpcio::{ChannelBuilder, Environment, WriteFlags, CallOption};
+use grpcio::{ChannelBuilder, Environment, WriteFlags};
 pub use protobuf::*;
 
 pub type FutureValue<O> = Pin<Box<(dyn Future<Output = O>)>>;
@@ -245,7 +245,7 @@ where T: Send + Clone + 'static,
         let server = server.clone();
 
         async move {
-            let mut event_stream = c.server_events(&server, opt)
+            let mut event_stream = c.server_events(&server)
                 .expect("Connecting to the event stream");
             while let Some(Ok(event)) = event_stream.next().await {
                 match event.get_field_type() {
