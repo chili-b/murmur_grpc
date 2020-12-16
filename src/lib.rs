@@ -245,9 +245,7 @@ where T: Send + Clone + 'static,
         let server = server.clone();
 
         async move {
-            let opt = CallOption::default()
-                .wait_for_ready(true);
-            let mut event_stream = c.server_events_opt(&server, opt)
+            let mut event_stream = c.server_events(&server, opt)
                 .expect("Connecting to the event stream");
             while let Some(Ok(event)) = event_stream.next().await {
                 match event.get_field_type() {
@@ -271,8 +269,6 @@ where T: Send + Clone + 'static,
 
         async move {
             if !chat_filters.is_empty() {
-                let opt = CallOption::default()
-                    .wait_for_ready(true);
                 let (mut filter_sender, mut filter_receiver) = c.text_message_filter()
                     .expect("Connecting to filter stream");
                 let mut initial_filter = TextMessage_Filter::new();
@@ -374,7 +370,7 @@ async fn try_send<T, S>(message: T, mut sink: S) -> bool
 where T: Clone,
       S: SinkExt<(T, WriteFlags)> + Unpin
 {
-    sink.flush();
+    sink.flush().await;
     for _ in 0..MAX_SEND_ATTEMPTS {
         if sink.send((message.clone(), WriteFlags::default())).await.is_ok() {
             return true;
