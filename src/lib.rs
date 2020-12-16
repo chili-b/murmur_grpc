@@ -370,10 +370,12 @@ async fn try_send<T, S>(message: T, mut sink: S) -> bool
 where T: Clone,
       S: SinkExt<(T, WriteFlags)> + Unpin
 {
-    sink.flush().await;
     for _ in 0..MAX_SEND_ATTEMPTS {
-        if sink.send((message.clone(), WriteFlags::default())).await.is_ok() {
+        if sink.send((message.clone(), WriteFlags::default().buffer_hint(false))).await.is_ok() {
+            sink.flush().await;
             return true;
+        } else {
+            eprintln!("Send failed");
         }
     }
     false
