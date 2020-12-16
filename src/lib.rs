@@ -271,6 +271,8 @@ where T: Send + Clone + 'static,
 
         async move {
             if !chat_filters.is_empty() {
+                let opt = CallOption::default()
+                    .wait_for_ready(true);
                 let (mut filter_sender, mut filter_receiver) = c.text_message_filter()
                     .expect("Connecting to filter stream");
                 let mut initial_filter = TextMessage_Filter::new();
@@ -372,6 +374,7 @@ async fn try_send<T, S>(message: T, mut sink: S) -> bool
 where T: Clone,
       S: SinkExt<(T, WriteFlags)> + Unpin
 {
+    sink.flush();
     for _ in 0..MAX_SEND_ATTEMPTS {
         if sink.send((message.clone(), WriteFlags::default())).await.is_ok() {
             return true;
