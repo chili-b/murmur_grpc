@@ -92,20 +92,7 @@ where T: Send + Clone,
             i: MurmurInterface::new(t, addr.into())
         }
     }
-    /*
-    pub fn data(mut self, t: T) -> Self {
-        self.i.t = Arc::new(Mutex::new(t));
-        self
-    }
-    pub fn data_mutex(mut self, t: Arc<Mutex<T>>) -> Self {
-        self.i.t = t;
-        self
-    }
-    pub fn addr(mut self, addr: String) -> Self {
-        self.i.addr = addr;
-        self
-    }
-    */
+
     pub fn user_connected(mut self, user_connected: Vec<Handler<T>>) -> Self {
         self.i.user_connected = user_connected;
         self
@@ -200,7 +187,8 @@ where T: Send + Clone + 'static,
         loop {
             let i_clone = i.clone();
             start_single(i_clone, c.clone());
-            println!("Connection to server at {} with id {} closed", &i.addr, &i.server_id);
+            println!("Connection to server at {} with id {} closed",
+                     &i.addr, &i.server_id);
             if !i.auto_reconnect { break; }
             thread::sleep(time::Duration::from_secs(RECONNECT_DELAY_SECONDS));
         }
@@ -249,13 +237,20 @@ where T: Send + Clone + 'static,
                 .expect("Connecting to the event stream");
             while let Some(Ok(event)) = event_stream.next().await {
                 match event.get_field_type() {
-                    Server_Event_Type::UserConnected       => handle_event(t.clone(), c.clone(), &user_connected, &event),
-                    Server_Event_Type::UserDisconnected    => handle_event(t.clone(), c.clone(), &user_disconnected, &event),
-                    Server_Event_Type::UserStateChanged    => handle_event(t.clone(), c.clone(), &user_state_changed, &event),
-                    Server_Event_Type::UserTextMessage     => handle_event(t.clone(), c.clone(), &user_text_message, &event),
-                    Server_Event_Type::ChannelCreated      => handle_event(t.clone(), c.clone(), &channel_created, &event),
-                    Server_Event_Type::ChannelRemoved      => handle_event(t.clone(), c.clone(), &channel_removed, &event),
-                    Server_Event_Type::ChannelStateChanged => handle_event(t.clone(), c.clone(), &channel_state_changed, &event),
+                    Server_Event_Type::UserConnected => handle_event(
+                        t.clone(), c.clone(), &user_connected, &event),
+                    Server_Event_Type::UserDisconnected => handle_event(
+                        t.clone(), c.clone(), &user_disconnected, &event),
+                    Server_Event_Type::UserStateChanged => handle_event(
+                        t.clone(), c.clone(), &user_state_changed, &event),
+                    Server_Event_Type::UserTextMessage => handle_event(
+                        t.clone(), c.clone(), &user_text_message, &event),
+                    Server_Event_Type::ChannelCreated => handle_event(
+                        t.clone(), c.clone(), &channel_created, &event),
+                    Server_Event_Type::ChannelRemoved => handle_event(
+                        t.clone(), c.clone(), &channel_removed, &event),
+                    Server_Event_Type::ChannelStateChanged => handle_event
+                        (t.clone(), c.clone(), &channel_state_changed, &event),
                 }.await
             }
         }
@@ -275,16 +270,15 @@ where T: Send + Clone + 'static,
                 initial_filter.set_server(server.clone());
                 filter_sender.send((initial_filter, WriteFlags::default())).await
                     .expect("Sending inital filter to open filter stream");
-                loop {
-                    if let Some(Ok(mut filter)) = filter_receiver.next().await {
-                        if filter.get_server().get_id() != server_id { break; }
-                        for chat_filter in chat_filters.iter() {
-                            let (cont, new_filter) = (chat_filter)(t.clone(), c.clone(), filter).await;
-                            filter = new_filter;
-                            if !cont { break; }
-                        }
-                        if !try_send(filter, &mut filter_sender).await { break; }
+                while let Some(Ok(mut filter)) = filter_receiver.next().await {
+                    if filter.get_server().get_id() != server_id { break; }
+                    for chat_filter in chat_filters.iter() {
+                        let (cont, new_filter) = (chat_filter)(
+                            t.clone(), c.clone(), filter).await;
+                        filter = new_filter;
+                        if !cont { break; }
                     }
+                    if !try_send(filter, &mut filter_sender).await { break; }
                 }
             }
         }
@@ -300,20 +294,20 @@ where T: Send + Clone + 'static,
             if !authenticators.is_empty() {
                 let (mut auth_sender, mut auth_receiver) = c.authenticator_stream()
                     .expect("Connecting to authenticator stream");
-                loop {
-                    if let Some(Ok(request)) = auth_receiver.next().await {
-                        let mut response = Authenticator_Response::new();
-                        for authenticator in authenticators.iter() {
-                            let (cont, new_response) = (authenticator)(t.clone(), c.clone(), response, request.clone()).await;
-                            response = new_response;
-                            if !cont { break; }
-                        }
-                        if !try_send(response, &mut auth_sender).await { break; }
+                while let Some(Ok(request)) = auth_receiver.next().await {
+                    let mut response = Authenticator_Response::new();
+                    for authenticator in authenticators.iter() {
+                        let (cont, new_response) = (authenticator)(
+                            t.clone(), c.clone(), response, request.clone()).await;
+                        response = new_response;
+                        if !cont { break; }
                     }
+                    if !try_send(response, &mut auth_sender).await { break; }
                 }
             }
         }
     };
+
 
     // CONTEXT MENU ACTIONS
     let context_action_fut = {
@@ -327,13 +321,11 @@ where T: Send + Clone + 'static,
                 if !handlers.is_empty() {
                     let mut context_action_stream = c.context_action_events(&action)
                         .expect("Connecting to context action stream");
-                    loop {
-                        if let Some(Ok(context_action)) = context_action_stream.next().await {
-                            if context_action.get_server().get_id() != server_id { break; }
-                            for handler in handlers.iter() {
-                                if !(handler)(t.clone(), c.clone(), context_action.clone()).await {
-                                    break;
-                                }
+                    while let Some(Ok(context_action)) = context_action_stream.next().await {
+                        if context_action.get_server().get_id() != server_id { break; }
+                        for handler in handlers.iter() {
+                            if !(handler)(t.clone(), c.clone(), context_action.clone()).await {
+                                break;
                             }
                         }
                     }
@@ -365,17 +357,13 @@ where F: Future<Output = O> + 'static
     Box::pin(f)
 }
 
-
 async fn try_send<T, S>(message: T, mut sink: S) -> bool
 where T: Clone,
       S: SinkExt<(T, WriteFlags)> + Unpin
 {
     for _ in 0..MAX_SEND_ATTEMPTS {
         if sink.send((message.clone(), WriteFlags::default().buffer_hint(false))).await.is_ok() {
-            sink.flush().await;
-            return true;
-        } else {
-            eprintln!("Send failed");
+            return sink.flush().await.is_ok();
         }
     }
     false
