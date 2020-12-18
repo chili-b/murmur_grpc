@@ -362,7 +362,7 @@ where T: Clone,
       S: SinkExt<(T, WriteFlags)> + Unpin
 {
     for _ in 0..MAX_SEND_ATTEMPTS {
-        if sink.send((message.clone(), WriteFlags::default().buffer_hint(false))).await.is_ok() {
+        if sink.send((message.clone(), WriteFlags::default().buffer_hint(false).force_no_compress(true))).await.is_ok() {
             return sink.flush().await.is_ok();
         }
     }
