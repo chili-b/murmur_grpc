@@ -271,14 +271,14 @@ where T: Send + Clone + 'static,
                 filter_sender.send((initial_filter, WriteFlags::default())).await
                     .expect("Sending inital filter to open filter stream");
                 while let Some(Ok(mut filter)) = filter_receiver.next().await {
-                    if filter.get_server().get_id() != server_id { break; }
+                    if filter.get_server().get_id() != server_id { continue; }
                     for chat_filter in chat_filters.iter() {
                         let (cont, new_filter) = (chat_filter)(
                             t.clone(), c.clone(), filter).await;
                         filter = new_filter;
                         if !cont { break; }
                     }
-                    if !try_send(filter, &mut filter_sender).await { break; }
+                    while !try_send(filter, &mut filter_sender).await {}
                 }
             }
         }
@@ -363,11 +363,10 @@ where T: Clone,
 {
     for _ in 0..MAX_SEND_ATTEMPTS {
         if sink.send((message.clone(), WriteFlags::default().buffer_hint(false).force_no_compress(true))).await.is_ok() {
-            //return sink.flush().await.is_ok();
+            return sink.flush().await.is_ok();
         }
     }
-    //false
-    true
+    false
 }
 
 
