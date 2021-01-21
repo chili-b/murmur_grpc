@@ -278,7 +278,7 @@ where T: Send + Clone + 'static,
                         filter = new_filter;
                         if !cont { break; }
                     }
-                    while !try_send(filter, &mut filter_sender).await {}
+                    while !try_send(filter.clone(), &mut filter_sender).await {}
                 }
             }
         }
