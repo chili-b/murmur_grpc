@@ -6,26 +6,22 @@ mod protos;
 
 pub use protos::MurmurRPC::*;
 pub use protos::MurmurRPC_grpc::V1Client;
-use futures::{StreamExt, SinkExt, join, executor::block_on, future::{join_all, Future}};
+use futures::{StreamExt, SinkExt, join, future::{join_all, Future}};
 use std::{thread::{self, JoinHandle}, time};
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 use std::pin::Pin;
 use grpcio::{ChannelBuilder, Environment, WriteFlags};
+use async_std::task;
 pub use protobuf::*;
 
-pub type FutureValue<O> = Pin<Box<(dyn Future<Output = O>)>>;
-
-pub type Handler<T> = fn(t: Arc<Mutex<T>>, c: V1Client, event: Server_Event) -> FutureValue<bool>;
-
-pub type ChatFilter<T> = fn(t: Arc<Mutex<T>>, c: V1Client, filter: TextMessage_Filter) -> FutureValue<(bool, TextMessage_Filter)>;
-
-pub type Authenticator<T> = fn(t: Arc<Mutex<T>>, c: V1Client, response: Authenticator_Response, request: Authenticator_Request) -> FutureValue<(bool, Authenticator_Response)>;
-
-pub type ContextActionHandler<T> = fn(t: Arc<Mutex<T>>, c: V1Client, action: ContextAction) -> FutureValue<bool>;
-
+// t is persistent data, c is the grpc client
+// pub type FutureValue<O> = Pin<Box<(dyn Future<Output = O>)>>;
+pub type Handler<T> = fn(t: Arc<Mutex<T>>, c: V1Client, event: Server_Event) -> bool;
+pub type ChatFilter<T> = fn(t: Arc<Mutex<T>>, c: V1Client, filter: TextMessage_Filter) -> (bool, TextMessage_Filter);
+pub type Authenticator<T> = fn(t: Arc<Mutex<T>>, c: V1Client, response: Authenticator_Response, request: Authenticator_Request) -> (bool, Authenticator_Response);
+pub type ContextActionHandler<T> = fn(t: Arc<Mutex<T>>, c: V1Client, action: ContextAction) -> bool;
 pub type ConnectHandler<T> = fn(t: Arc<Mutex<T>>, c: V1Client) -> bool;
-
 pub type DisconnectHandler<T> = fn(t: Arc<Mutex<T>>) -> bool;
 
 
@@ -274,11 +270,11 @@ where T: Send + Clone + 'static,
                     if filter.get_server().get_id() != server_id { continue; }
                     for chat_filter in chat_filters.iter() {
                         let (cont, new_filter) = (chat_filter)(
-                            t.clone(), c.clone(), filter).await;
+                            t.clone(), c.clone(), filter);
                         filter = new_filter;
                         if !cont { break; }
                     }
-                    while !try_send(filter.clone(), &mut filter_sender).await {}
+                    if !try_send(filter.clone(), &mut filter_sender).await { break; }
                 }
             }
         }
@@ -298,7 +294,7 @@ where T: Send + Clone + 'static,
                     let mut response = Authenticator_Response::new();
                     for authenticator in authenticators.iter() {
                         let (cont, new_response) = (authenticator)(
-                            t.clone(), c.clone(), response, request.clone()).await;
+                            t.clone(), c.clone(), response, request.clone());
                         response = new_response;
                         if !cont { break; }
                     }
@@ -324,7 +320,7 @@ where T: Send + Clone + 'static,
                     while let Some(Ok(context_action)) = context_action_stream.next().await {
                         if context_action.get_server().get_id() != server_id { break; }
                         for handler in handlers.iter() {
-                            if !(handler)(t.clone(), c.clone(), context_action.clone()).await {
+                            if !(handler)(t.clone(), c.clone(), context_action.clone()) {
                                 break;
                             }
                         }
@@ -336,7 +332,7 @@ where T: Send + Clone + 'static,
 
 
     // join all the tasks into a single future
-    block_on(async move {
+    task::block_on(async move {
         join!(server_event_fut, chat_filter_fut, authenticator_fut, context_action_fut);
     });
 
@@ -370,11 +366,11 @@ where T: Clone,
 }
 
 
-async fn handle_event<T>(t: Arc<Mutex<T>>, c: V1Client, handlers: &Vec<Handler<T>>, event: &Server_Event) 
+async fn handle_event<T>(t: Arc<Mutex<T>>, c: V1Client, handlers: &Vec<Handler<T>>, event: &Server_Event)
 where T: Send + Clone,
 {
     for handler in handlers.iter() {
-        if !(handler)(t.clone(), c.clone(), event.to_owned()).await {
+        if !(handler)(t.clone(), c.clone(), event.to_owned()) {
             return;
         }
     }
