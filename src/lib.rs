@@ -15,11 +15,11 @@ use grpcio::{ChannelBuilder, Environment, WriteFlags};
 pub use protobuf::*;
 
 // t is persistent data, c is the grpc client
-// pub type FutureValue<O> = Pin<Box<(dyn Future<Output = O>)>>;
-pub type Handler<T> = fn(t: Arc<Mutex<T>>, c: V1Client, event: Server_Event) -> bool;
-pub type ChatFilter<T> = fn(t: Arc<Mutex<T>>, c: V1Client, filter: TextMessage_Filter) -> (bool, TextMessage_Filter);
-pub type Authenticator<T> = fn(t: Arc<Mutex<T>>, c: V1Client, response: Authenticator_Response, request: Authenticator_Request) -> (bool, Authenticator_Response);
-pub type ContextActionHandler<T> = fn(t: Arc<Mutex<T>>, c: V1Client, action: ContextAction) -> bool;
+pub type FutureValue<O> = Pin<Box<(dyn Future<Output = O>)>>;
+pub type Handler<T> = fn(t: Arc<Mutex<T>>, c: V1Client, event: Server_Event) -> FutureValue<bool>;
+pub type ChatFilter<T> = fn(t: Arc<Mutex<T>>, c: V1Client, filter: TextMessage_Filter) -> FutureValue<(bool, TextMessage_Filter)>;
+pub type Authenticator<T> = fn(t: Arc<Mutex<T>>, c: V1Client, response: Authenticator_Response, request: Authenticator_Request) -> FutureValue<(bool, Authenticator_Response)>;
+pub type ContextActionHandler<T> = fn(t: Arc<Mutex<T>>, c: V1Client, action: ContextAction) -> FutureValue<bool>;
 pub type ConnectHandler<T> = fn(t: Arc<Mutex<T>>, c: V1Client) -> bool;
 pub type DisconnectHandler<T> = fn(t: Arc<Mutex<T>>) -> bool;
 
@@ -275,7 +275,7 @@ where T: Send + Clone + 'static,
                     if filter.get_server().get_id() != server_id { continue; }
                     for chat_filter in chat_filters.iter() {
                         let (cont, new_filter) = (chat_filter)(
-                            t.clone(), c.clone(), filter);
+                            t.clone(), c.clone(), filter).await;
                         filter = new_filter;
                         if !cont { break; }
                     }
@@ -302,7 +302,7 @@ where T: Send + Clone + 'static,
                     let mut response = Authenticator_Response::new();
                     for authenticator in authenticators.iter() {
                         let (cont, new_response) = (authenticator)(
-                            t.clone(), c.clone(), response, request.clone());
+                            t.clone(), c.clone(), response, request.clone()).await;
                         response = new_response;
                         if !cont { break; }
                     }
@@ -334,7 +334,7 @@ where T: Send + Clone + 'static,
                         let lock = lock.lock().await;
                         if context_action.get_server().get_id() != server_id { break; }
                         for handler in handlers.iter() {
-                            if !(handler)(t.clone(), c.clone(), context_action.clone()) {
+                            if !(handler)(t.clone(), c.clone(), context_action.clone()).await {
                                 break;
                             }
                         }
@@ -385,7 +385,7 @@ async fn handle_event<T>(t: Arc<Mutex<T>>, c: V1Client, handlers: &Vec<Handler<T
 where T: Send + Clone,
 {
     for handler in handlers.iter() {
-        if !(handler)(t.clone(), c.clone(), event.to_owned()) {
+        if !(handler)(t.clone(), c.clone(), event.to_owned()).await {
             return;
         }
     }
