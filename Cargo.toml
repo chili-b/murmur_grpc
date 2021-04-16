@@ -1,6 +1,6 @@
 [package]
 name = "murmur_grpc"
-version = "2.0.2"
+version = "2.0.5"
 authors = ["chili-b"]
 edition = "2018"
 description = "Wrapper over Murmur's gRPC interface"
@@ -18,7 +18,6 @@ crate-type = ["lib"]
 grpcio = "^0.8"
 protobuf = "^2.0"
 futures = "^0.3"
-async-std = "^1.0"
 
 [build-dependencies]
 protoc-grpcio = "3.0.0"

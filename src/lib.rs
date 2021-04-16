@@ -6,13 +6,12 @@ mod protos;
 
 pub use protos::MurmurRPC::*;
 pub use protos::MurmurRPC_grpc::V1Client;
-use futures::{StreamExt, SinkExt, join, future::{join_all, Future}};
+use futures::{StreamExt, SinkExt, join, future::{join_all, Future}, executor::block_on, lock};
 use std::{thread::{self, JoinHandle}, time};
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 use std::pin::Pin;
 use grpcio::{ChannelBuilder, Environment, WriteFlags};
-use async_std::task;
 pub use protobuf::*;
 
 // t is persistent data, c is the grpc client
@@ -221,17 +220,20 @@ where T: Send + Clone + 'static,
     let server = c.server_get(&server)
         .expect("getting current server");
 
+    let lock = Arc::new(lock::Mutex::new(()));
 
     // SERVER EVENTS
     let server_event_fut = {
         let c = c.clone();
         let t = t.clone();
+        let lock = lock.clone();
         let server = server.clone();
 
         async move {
             let mut event_stream = c.server_events(&server)
                 .expect("Connecting to the event stream");
             while let Some(Ok(event)) = event_stream.next().await {
+                let lock = lock.lock().await;
                 match event.get_field_type() {
                     Server_Event_Type::UserConnected => handle_event(
                         t.clone(), c.clone(), &user_connected, &event),
@@ -247,7 +249,8 @@ where T: Send + Clone + 'static,
                         t.clone(), c.clone(), &channel_removed, &event),
                     Server_Event_Type::ChannelStateChanged => handle_event
                         (t.clone(), c.clone(), &channel_state_changed, &event),
-                }.await
+                }.await;
+                drop(lock)
             }
         }
     };
@@ -257,6 +260,7 @@ where T: Send + Clone + 'static,
     let chat_filter_fut = {
         let c = c.clone();
         let t = t.clone();
+        let lock = lock.clone();
 
         async move {
             if !chat_filters.is_empty() {
@@ -267,6 +271,7 @@ where T: Send + Clone + 'static,
                 filter_sender.send((initial_filter, WriteFlags::default())).await
                     .expect("Sending inital filter to open filter stream");
                 while let Some(Ok(mut filter)) = filter_receiver.next().await {
+                    let lock = lock.lock().await;
                     if filter.get_server().get_id() != server_id { continue; }
                     for chat_filter in chat_filters.iter() {
                         let (cont, new_filter) = (chat_filter)(
@@ -275,6 +280,7 @@ where T: Send + Clone + 'static,
                         if !cont { break; }
                     }
                     if !try_send(filter.clone(), &mut filter_sender).await { break; }
+                    drop(lock)
                 }
             }
         }
@@ -285,12 +291,14 @@ where T: Send + Clone + 'static,
     let authenticator_fut = {
         let c = c.clone();
         let t = t.clone();
+        let lock = lock.clone();
 
         async move {
             if !authenticators.is_empty() {
                 let (mut auth_sender, mut auth_receiver) = c.authenticator_stream()
                     .expect("Connecting to authenticator stream");
                 while let Some(Ok(request)) = auth_receiver.next().await {
+                    let lock = lock.lock().await;
                     let mut response = Authenticator_Response::new();
                     for authenticator in authenticators.iter() {
                         let (cont, new_response) = (authenticator)(
@@ -299,6 +307,7 @@ where T: Send + Clone + 'static,
                         if !cont { break; }
                     }
                     if !try_send(response, &mut auth_sender).await { break; }
+                    drop(lock);
                 }
             }
         }
@@ -309,21 +318,27 @@ where T: Send + Clone + 'static,
     let context_action_fut = {
         let c = c.clone();
         let t = t.clone();
+        let lock = lock.clone();
+
         join_all(context_actions.into_iter().map(|(action, handlers)| {
             let c = c.clone();
             let t = t.clone();
+            let lock = lock.clone();
+
             async move {
                 while c.context_action_add(&action).is_err() {}
                 if !handlers.is_empty() {
                     let mut context_action_stream = c.context_action_events(&action)
                         .expect("Connecting to context action stream");
                     while let Some(Ok(context_action)) = context_action_stream.next().await {
+                        let lock = lock.lock().await;
                         if context_action.get_server().get_id() != server_id { break; }
                         for handler in handlers.iter() {
                             if !(handler)(t.clone(), c.clone(), context_action.clone()) {
                                 break;
                             }
                         }
+                        drop(lock);
                     }
                 }
             }
@@ -332,7 +347,7 @@ where T: Send + Clone + 'static,
 
 
     // join all the tasks into a single future
-    task::block_on(async move {
+    block_on(async move {
         join!(server_event_fut, chat_filter_fut, authenticator_fut, context_action_fut);
     });
 
