@@ -162,10 +162,14 @@ impl ClientManager {
             let sleep_time = time::Duration::from_secs(RECONNECT_DELAY_SECONDS);
             loop {
                 let addr = i.addr.clone();
-                let c = if let Some(c) = clients.lock().unwrap().get(&addr) {
+                let clients_owned = clients.lock().unwrap();
+                let c = if let Some(c) = clients_owned.get(&addr) {
                     println!("Using existing client for {}", &i.addr);
-                    c.to_owned()
+                    let c = c.to_owned();
+                    drop(clients_owned);
+                    c
                 } else {
+                    drop(clients_owned);
                     let env = Environment::new(GRPC_COMPLETION_QUEUE_SIZE);
                     let builder = ChannelBuilder::new(Arc::new(env));
                     let channel = builder.connect(i.addr.as_ref());
