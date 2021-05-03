@@ -143,51 +143,56 @@ where T: Send + Clone,
 
 
 pub struct ClientManager {
-    pub clients: HashMap<String, V1Client>
+    pub clients: Arc<Mutex<HashMap<String, V1Client>>>
 }
 
 impl ClientManager {
     
     pub fn new() -> Self {
         Self {
-            clients: HashMap::new()
+            clients: Arc::new(Mutex::new(HashMap::new()))
         }
     }
 
     pub fn start_connection<T>(&mut self, i: MurmurInterface<T>) -> JoinHandle<()> 
     where T: Send + Clone + 'static,
     {
-        let addr = i.addr.clone();
-        let c = if let Some(c) = self.clients.get(&addr) {
-            println!("Using existing client for {}", &i.addr);
-            c.to_owned()
-        } else {
-            let env = Environment::new(GRPC_COMPLETION_QUEUE_SIZE);
-            let builder = ChannelBuilder::new(Arc::new(env));
-            let channel = builder.connect(i.addr.as_ref());
-            println!("Connecting to {}", &i.addr);
-            let c = V1Client::new(channel);
-            self.clients.insert(addr, c.clone());
-            c
-        };
-        start_connection(i, c)
+        let clients = self.clients.clone();
+        thread::spawn(move || {
+            let sleep_time = time::Duration::from_secs(RECONNECT_DELAY_SECONDS);
+            loop {
+                let addr = i.addr.clone();
+                let c = if let Some(c) = clients.lock().unwrap().get(&addr) {
+                    println!("Using existing client for {}", &i.addr);
+                    c.to_owned()
+                } else {
+                    let env = Environment::new(GRPC_COMPLETION_QUEUE_SIZE);
+                    let builder = ChannelBuilder::new(Arc::new(env));
+                    let channel = builder.connect(i.addr.as_ref());
+                    println!("Connecting to {}", &i.addr);
+                    let c = V1Client::new(channel);
+                    clients.lock().unwrap().insert(addr, c.clone());
+                    c
+                };
+                start_connection(i.clone(), c.clone());
+                if c.get_uptime(&Void::new()).is_err() {
+                    drop(clients.lock().unwrap().remove(&i.addr));
+                }
+                if !i.auto_reconnect { break; }
+                thread::sleep(sleep_time);
+            }
+        })
     }
 }
 
 
-fn start_connection<T>(i: MurmurInterface<T>, c: V1Client) -> JoinHandle<()>
+fn start_connection<T>(i: MurmurInterface<T>, c: V1Client)
 where T: Send + Clone + 'static,
 {
-    thread::spawn(move || {
-        loop {
-            let i_clone = i.clone();
-            start_single(i_clone, c.clone());
-            println!("Connection to server at {} with id {} closed",
-                     &i.addr, &i.server_id);
-            if !i.auto_reconnect { break; }
-            thread::sleep(time::Duration::from_secs(RECONNECT_DELAY_SECONDS));
-        }
-    })
+        let i_clone = i.clone();
+        start_single(i_clone, c.clone());
+        println!("Connection to server at {} with id {} closed",
+                    &i.addr, &i.server_id);
 }
 
 
