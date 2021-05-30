@@ -161,6 +161,7 @@ impl ClientManager {
         thread::spawn(move || {
             let sleep_time = time::Duration::from_secs(RECONNECT_DELAY_SECONDS);
             loop {
+                thread::sleep(sleep_time);
                 let addr = i.addr.clone();
                 let clients_owned = clients.lock().unwrap();
                 let c = if let Some(c) = clients_owned.get(&addr) {
@@ -173,6 +174,13 @@ impl ClientManager {
                     let env = Environment::new(GRPC_COMPLETION_QUEUE_SIZE);
                     let builder = ChannelBuilder::new(Arc::new(env));
                     let channel = builder.connect(i.addr.as_ref());
+                    // Contstructing a new V1Client from a channel which is unable
+                    // to connect results in a panic, so this check is necessary.
+                    match channel.check_connectivity_state(true) {
+                        grpcio::ConnectivityState::GRPC_CHANNEL_SHUTDOWN => { continue; },
+                        grpcio::ConnectivityState::GRPC_TRANSIENT_FAILURE => { continue; },
+                        _ => {}
+                    }
                     println!("Connecting to {}", &i.addr);
                     let c = V1Client::new(channel);
                     clients.lock().unwrap().insert(addr, c.clone());
@@ -183,7 +191,6 @@ impl ClientManager {
                     drop(clients.lock().unwrap().remove(&i.addr));
                 }
                 if !i.auto_reconnect { break; }
-                thread::sleep(sleep_time);
             }
         })
     }
