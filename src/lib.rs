@@ -178,7 +178,7 @@ impl ClientManager {
                     // to connect results in a panic, so this check is necessary.
                     match channel.check_connectivity_state(true) {
                         grpcio::ConnectivityState::GRPC_CHANNEL_SHUTDOWN => { continue; },
-                        grpcio::ConnectivityState::GRPC_TRANSIENT_FAILURE => { continue; },
+                        grpcio::ConnectivityState::GRPC_CHANNEL_TRANSIENT_FAILURE => { continue; },
                         _ => {}
                     }
                     println!("Connecting to {}", &i.addr);
