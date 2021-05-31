@@ -233,8 +233,10 @@ where T: Send + Clone + 'static,
 
     let mut server = Server::new();
     server.set_id(server_id);
-    let server = c.server_get(&server)
-        .expect("getting current server");
+    let server = match c.server_get(&server) {
+        Ok(server) => server,
+        Err(_) => { return; }
+    };
 
     let lock = Arc::new(lock::Mutex::new(()));
 
